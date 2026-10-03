@@ -4,6 +4,7 @@ import { comboName, resolvePlay, type Combo } from '@shared/combo';
 import { partnerOf, teamOf, type GameEvent, type RoundResult } from '@shared/game';
 import { CardTracker } from '@shared/tracker';
 import { advise, buildJevContext, type AdviceOption } from '@shared/advisor';
+import { preferLooseCards } from '@shared/ai';
 import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable } from '../gfx/textures';
 import { tween, ease, wait } from '../gfx/tween';
 import { Button } from '../ui/Button';
@@ -587,7 +588,8 @@ export class TableScene extends Container {
         const m = resolvePlay(col, g.level, target).find((x) => x.type === c.type && x.value === c.value);
         if (m) return { ...o, combo: { ...c, cards: [...col] } };
       }
-      return o;
+      // 否则同点数优先选不在其他列里的牌，不拆散理好的列
+      return { ...o, combo: preferLooseCards(c, g.hands[this.client.mySeat], g.level, this.hand.cols) };
     });
   }
 

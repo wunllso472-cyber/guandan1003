@@ -206,6 +206,42 @@ export function bestSplit(hand: number[], level: number): Split {
   return best!;
 }
 
+/** 某张牌所在组合的“紧密程度”：单张 0、对子 1、三张/三带二 2、连牌 3、炸弹 4 */
+const TIGHTNESS: Partial<Record<ComboType, number>> = {
+  single: 0, pair: 1, triple: 2, fullhouse: 2, straight: 3, tube: 3, plate: 3, bomb: 4, straightflush: 4, jokerbomb: 4,
+};
+
+/**
+ * 出牌时同点数有多张可选，优先用不属于其他组合的那张：单张 > 对子 > 三张 > 连牌 > 炸弹里的。
+ * groups 为手牌的分组（界面上理好的列）；不传时按拆牌结果。牌型和大小不变，只是换成等价的另一张。
+ */
+export function preferLooseCards(c: Combo, hand: number[], level: number, groups?: number[][]): Combo {
+  if (c.type === 'straightflush' || c.type === 'jokerbomb') return c; // 同花顺要看花色，天王炸没有可换的
+  const gs = groups ?? bestSplit(hand, level).combos.map((x) => x.cards);
+  const groupOf = new Map<number, number[]>();
+  for (const g of gs) for (const id of g) groupOf.set(id, g);
+  const tight = (id: number) => {
+    const g = groupOf.get(id);
+    if (!g || g.length === 1) return 0;
+    const t = parseCombos(g, level)[0]?.type;
+    return t ? TIGHTNESS[t] ?? 2 : 2;
+  };
+  const inCombo = new Set(c.cards);
+  const cards: number[] = [];
+  const used = new Set<number>();
+  for (const id of c.cards) {
+    if (isWild(id, level)) { cards.push(id); used.add(id); continue; }
+    const r = card(id).rank;
+    // 同点数、同样不是逢人配、还没被选中的牌里挑最“散”的（并列时保留原来的牌）
+    const best = hand
+      .filter((x) => !used.has(x) && !isWild(x, level) && card(x).rank === r)
+      .sort((a, b) => tight(a) - tight(b) || Number(inCombo.has(b)) - Number(inCombo.has(a)))[0] ?? id;
+    cards.push(best);
+    used.add(best);
+  }
+  return { ...c, cards };
+}
+
 function without(hand: number[], cards: number[]): number[] {
   const s = new Set(cards);
   return hand.filter((x) => !s.has(x));
@@ -246,7 +282,9 @@ export function leadOptions(ctx: AIContext): Combo[] {
   // 帮对家走牌
   if (pc === 1 || pc === 2) {
     const t: ComboType = pc === 1 ? 'single' : 'pair';
-    const small = findAllPlays(hand, level).filter((c) => c.type === t).sort((a, b) => a.value - b.value);
+    const baseHands = handsOf(split);
+    const keeps = (c: Combo) => (handsOf(bestSplit(without(hand, c.cards), level)) < baseHands ? 0 : 1);
+    const small = findAllPlays(hand, level).filter((c) => c.type === t).sort((a, b) => keeps(a) - keeps(b) || a.value - b.value);
     if (small.length) return [small[0], ...nonBomb, ...bombs];
   }
   const nc = handCounts[next];
@@ -259,23 +297,42 @@ export function leadOptions(ctx: AIContext): Combo[] {
   return [...nonBomb, ...bombs];
 }
 
-interface Scored { combo: Combo; delta: number }
+interface Scored {
+  combo: Combo;
+  delta: number;
+  /** 是否从连牌（顺子/三连对/钢板）里拆牌，且出完后剩余牌需要的手数没有减少 */
+  breaksChain: boolean;
+}
+
+const handsOf = (split: Split) => split.combos.filter((c) => !isBomb(c)).length;
 
 /** 跟牌候选，按代价从小到大。 */
 export function followOptions(ctx: AIContext): Scored[] {
   const { hand, level, target } = ctx;
-  const base = bestSplit(hand, level).score;
+  const baseSplit = bestSplit(hand, level);
+  const base = baseSplit.score;
+  const baseHands = handsOf(baseSplit);
+  const groups = baseSplit.combos.map((x) => x.cards);
+  const chainCards = new Set(baseSplit.combos.filter((x) => x.type === 'straight' || x.type === 'tube' || x.type === 'plate').flatMap((x) => x.cards));
   const cands = findAllPlays(hand, level, target);
-  const scored = cands.map((combo) => {
+  const scored = cands.map((c0) => {
+    const combo = preferLooseCards(c0, hand, level, groups);
     const rest = without(hand, combo.cards);
-    const s = rest.length ? bestSplit(rest, level).score : -10;
+    const split = rest.length ? bestSplit(rest, level) : null;
+    const s = split ? split.score : -10;
     const delta = s - base + (isBomb(combo) ? 1.2 + bombLevel(combo) * 0.05 : 0) + combo.value * 0.01;
-    return { combo, delta };
+    const breaksChain = !!split && !isBomb(combo) && combo.cards.some((id) => chainCards.has(id)) && handsOf(split) >= baseHands;
+    return { combo, delta, breaksChain };
   });
   return scored.sort((a, b) => a.delta - b.delta);
 }
 
 export function aiPlay(ctx: AIContext): Combo | null {
+  const c = decide(ctx);
+  return c ? preferLooseCards(c, ctx.hand, ctx.level) : null;
+}
+
+function decide(ctx: AIContext): Combo | null {
   const { hand, target, targetSeat, seat, handCounts } = ctx;
   if (!target) return leadOptions(ctx)[0];
 
@@ -288,7 +345,8 @@ export function aiPlay(ctx: AIContext): Combo | null {
   const oppLeft = targetSeat !== null ? handCounts[targetSeat] : 27;
   const urgent = oppLeft <= 6;
   const nonBomb = opts.filter((o) => !isBomb(o.combo));
-  const pick = nonBomb.find((o) => o.delta <= (urgent ? 3 : -0.35));
+  // 不急的时候不为了跟牌拆散已有的牌型（例如从顺子里拆一张去跟单张）
+  const pick = nonBomb.find((o) => o.delta <= (urgent ? 3 : -0.35) && (urgent || !o.breaksChain));
   if (pick) return pick.combo;
 
   const bombs = opts.filter((o) => isBomb(o.combo));

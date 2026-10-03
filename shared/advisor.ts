@@ -2,7 +2,7 @@
 import { card, cardValue, isWild, rankName, value, BIG_JOKER, SMALL_JOKER, type Suit } from './cards';
 import { bombLevel, comboName, isBomb, type Combo } from './combo';
 import { findAllPlays } from './finder';
-import { bestSplit, aiPlay } from './ai';
+import { bestSplit, aiPlay, preferLooseCards } from './ai';
 import { CardTracker, unseenStat, type UnseenStat } from './tracker';
 
 export type Control = 'unbeatable' | 'bombOnly' | 'beatable';
@@ -209,7 +209,10 @@ export function advise(inp: AdviceInput): Advice {
   const st = unseenStat(tracker.unseen(hand, inp.partnerHand ?? null), level);
   const { facts, inferred } = collectFacts(inp, st);
   const base = bestSplit(hand, level);
+  const baseHands = base.combos.filter((x) => !isBomb(x)).length;
   const leading = !target;
+  // 对手快出完时才值得拆牌去压
+  const urgent = [next, prev].some((s) => counts[s] > 0 && counts[s] <= 6);
   const active = (s: number) => counts[s] > 0;
   const partnerKnownTop = [...tracker.seats[partner].known].some((id) => cardValue(id, level) >= st.topValue && st.topValue > 0);
   const oppKnownTop = [next, prev].some((s) => [...tracker.seats[s].known].some((id) => cardValue(id, level) >= st.topValue && st.topValue > 0));
@@ -222,7 +225,8 @@ export function advise(inp: AdviceInput): Advice {
 
   const options: AdviceOption[] = [];
   const cands = findAllPlays(hand, level, target);
-  cands.forEach((c, i) => {
+  cands.forEach((c0, i) => {
+    const c = preferLooseCards(c0, hand, level, base.combos.map((x) => x.cards));
     const used = new Set(c.cards);
     const rest = hand.filter((id) => !used.has(id));
     const split = rest.length ? bestSplit(rest, level) : { score: -10, combos: [] as Combo[] };
@@ -265,6 +269,7 @@ export function advise(inp: AdviceInput): Advice {
       reasons.push('大小王已出完，级牌是最大的单张');
     }
     if (f.breaksBomb) { score += 0.8; reasons.push('会拆掉炸弹'); }
+    else if (!urgent && !f.finishes && !f.isBomb && f.handsLeft >= baseHands) { score += 1.0; reasons.push('会拆散已有的牌型'); }
     if (!reasons.length) reasons.push(f.handsLeft <= 1 ? '出完后很快就能走完' : `出完后还剩 ${f.handsLeft} 手牌`);
     options.push({ id: `p${i}`, combo: c, label: comboLabel(c, level), features: f, score, reasons });
   });

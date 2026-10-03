@@ -48,3 +48,23 @@ describe('拆牌中逢人配的用法', () => {
     for (const c of sp.combos) expect(parseCombos(c.cards, 2).some((p) => p.type === c.type), c.type).toBe(true);
   });
 });
+
+import { aiPlay } from '../shared/ai';
+import { resolvePlay } from '../shared/combo';
+
+describe('出单张不拆顺子', () => {
+  it('同点数有两张时，打不在顺子里的那张', () => {
+    const hand = ids('S3 C4 D5 S6 C7 H5 SK CK DK SA');   // 顺子 3-7，另有一张 ♥5（打 2 时不是配）
+    const target = resolvePlay(ids('D4'), 2, null)[0];
+    const c = aiPlay({ seat: 0, hand, level: 2, target, targetSeat: 1, handCounts: [10, 20, 20, 20] });
+    if (c && c.type === 'single' && card(c.cards[0]).rank === 5) expect(card(c.cards[0]).suit).toBe('H');
+  });
+
+  it('对手牌还多时，不从顺子里拆牌去跟单张', () => {
+    const hand = ids('S3 C4 D5 S6 C7 SK CK DK S9 C9');   // 4~7 只在顺子里有
+    const target = resolvePlay(ids('D3'), 2, null)[0];
+    const c = aiPlay({ seat: 0, hand, level: 2, target, targetSeat: 1, handCounts: [10, 20, 20, 20] });
+    const fromStraight = c?.type === 'single' && [3, 4, 5, 6, 7].includes(card(c.cards[0]).rank);
+    expect(fromStraight).toBe(false);
+  });
+});
