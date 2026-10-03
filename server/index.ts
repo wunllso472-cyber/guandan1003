@@ -13,6 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 // 打包后与 client 目录同级（dist/server.mjs + dist/client）；开发时由 Vite 提供页面
 const STATIC_DIR = resolve(process.env.STATIC_DIR ?? join(here, 'client'));
 const ROOM_IDLE_MS = 10 * 60_000;
+const STARTED_AT = new Date().toISOString();
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -24,6 +25,12 @@ const MIME: Record<string, string> = {
 const http = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/healthz') { res.end('ok'); return; }
+  if (url.pathname === '/version') {
+    // RENDER_GIT_COMMIT 由 Render 在部署时自动提供，用于核对线上运行的代码版本
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ commit: process.env.RENDER_GIT_COMMIT ?? 'local', startedAt: STARTED_AT }));
+    return;
+  }
   let p = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
   let file = join(STATIC_DIR, p);
   if (!file.startsWith(STATIC_DIR)) { res.writeHead(403).end(); return; }
