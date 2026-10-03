@@ -5,6 +5,7 @@ import { extname, join, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Room } from './room';
+import { getAdvice } from './jev';
 import type { ClientMsg, ServerMsg } from '../shared/protocol';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -64,7 +65,8 @@ function createRoom(): Room {
   return room;
 }
 
-const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });
+// 出牌建议的局面信息较大，放宽到 64KB
+const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 64 * 1024 });
 
 interface Conn { ws: WebSocket; token: string; name: string; voice: 'male' | 'female'; alive: boolean }
 
@@ -126,6 +128,15 @@ function handle(c: Conn, msg: ClientMsg) {
     }
   }
   if (!room) { reply('你不在房间中'); return; }
+  if (msg.t === 'advise') {
+    // 只有正在对局中的玩家可以请求建议
+    if (!room.playing || room.seatOf(c.token) < 0) { send(c.ws, { t: 'advice', id: msg.id, ranking: null, error: '不在对局中' }); return; }
+    const id = Number(msg.id);
+    void getAdvice(c.token, msg.ctx).then(({ result, error }) => {
+      send(c.ws, { t: 'advice', id, ranking: result?.ranking ?? null, confidence: result?.confidence, error });
+    });
+    return;
+  }
   switch (msg.t) {
     case 'leave': room.leave(c.token); return;
     case 'sit': reply(room.sit(c.token, Number(msg.seat))); return;

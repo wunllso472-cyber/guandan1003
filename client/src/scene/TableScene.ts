@@ -1,7 +1,9 @@
 import { Container, Graphics, Sprite, Text, Texture, Point, Ticker } from 'pixi.js';
 import { rankName } from '@shared/cards';
 import { comboName, resolvePlay, type Combo } from '@shared/combo';
-import { partnerOf, teamOf, type RoundResult } from '@shared/game';
+import { partnerOf, teamOf, type GameEvent, type RoundResult } from '@shared/game';
+import { CardTracker } from '@shared/tracker';
+import { advise, buildJevContext, type AdviceOption } from '@shared/advisor';
 import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable } from '../gfx/textures';
 import { tween, ease, wait } from '../gfx/tween';
 import { Button } from '../ui/Button';
@@ -15,6 +17,8 @@ import { prefs, savePrefs } from '../game/prefs';
 import { autoPickFor } from '../game/autopick';
 
 const PAD = 28; // 刘海屏安全边距
+/** 等待 Jev 建议的最长时间 */
+const JEV_TIMEOUT_MS = 2000;
 
 export class TableScene extends Container {
   private bg: Sprite;
@@ -48,8 +52,16 @@ export class TableScene extends Container {
   private toastText: Text;
   private DW = 1280;
   private DH = 750;
-  private hintList: Combo[] = [];
+  /** 当前回合的提示候选（按推荐顺序），多次点“提示”依次切换 */
+  private hintList: AdviceOption[] = [];
   private hintIdx = 0;
+  private hintBusy = false;
+  private hintByJev = false;
+  /** 每次轮到新的出牌人加一，用于丢弃过期的 Jev 结果 */
+  private turnSerial = 0;
+  /** 记牌器：从自己的视角记录公开信息 */
+  private tracker: CardTracker;
+  private reasonText: Text;
   private myTurn = false;
   /** 自己出完后查看对家手牌（只读） */
   private watching = -1;
@@ -63,6 +75,10 @@ export class TableScene extends Container {
       if (this.chat.isOpen) { this.chat.closeAll(); return; }
       if (this.hand.selected.size) this.hand.clearSelection();
     });
+    this.tracker = new CardTracker(client.mySeat);
+    this.reasonText = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 22, fontWeight: '700', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 }, wordWrap: true, wordWrapWidth: 760, align: 'center' } });
+    this.reasonText.anchor.set(0.5, 1);
+    this.reasonText.alpha = 0;
     this.fx = new Effects(this);
     this.chat = new ChatLayer({
       client,
@@ -144,6 +160,7 @@ export class TableScene extends Container {
     this.watchTag.anchor.set(0.5);
     this.watchTag.visible = false;
     this.addChild(this.watchTag);
+    this.addChild(this.reasonText);
 
     this.hand.onChange = () => this.refreshButtons();
     this.hand.autoPick = (id) => {
@@ -212,6 +229,7 @@ export class TableScene extends Container {
     this.autoBtn.position.set(DW - PAD - 160, 34);
     this.toastBox.position.set(DW / 2, DH - 470);
     this.watchTag.position.set(DW / 2, DH - 380);
+    this.reasonText.position.set(DW / 2, DH - 432);
     this.overlay.position.set(0, 0);
     for (const c of this.overlay.children) (c as any).relayout?.(DW, DH);
   }
@@ -221,6 +239,7 @@ export class TableScene extends Container {
   private onEvent(e: ClientEvent) {
     const g = this.client.game;
     const me = this.client.mySeat;
+    this.tracker.apply(e as GameEvent);
     switch (e.type) {
       case 'roundStart': {
         this.clearOverlay();
@@ -271,6 +290,8 @@ export class TableScene extends Container {
         this.returnBar.visible = false;
         this.myTurn = e.seat === me;
         this.lastTick = -1;
+        this.turnSerial++;
+        this.reasonText.alpha = 0;
         if (this.myTurn && !this.client.isAuto(me) && this.watching < 0) sound.play('turn');
         this.hintList = [];
         this.hintIdx = 0;
@@ -507,18 +528,70 @@ export class TableScene extends Container {
     else this.hand.clearSelection();
   }
 
-  private doHint() {
+  /** 提示：本地顾问给出候选与理由；联机时先请 Jev 排序（最多等 2 秒），失败则用本地结果 */
+  private async doHint() {
+    if (this.hintBusy) return;
     if (!this.hintList.length) {
-      this.hintList = this.client.hints();
+      const g = this.client.game;
+      const me = this.client.mySeat;
+      const input = {
+        seat: me, hand: g.hands[me], level: g.level,
+        target: g.lastPlay?.combo ?? null, targetSeat: g.lastPlay?.seat ?? null,
+        counts: g.handCounts(), tracker: this.tracker,
+      };
+      const adv = advise(input);
+      let opts = adv.options;
+      this.hintByJev = false;
+      if (this.client.requestAdvice && opts.length > 1) {
+        const serial = this.turnSerial;
+        this.hintBusy = true;
+        this.hintBtn.text = '思考中…';
+        const res = await this.client.requestAdvice(buildJevContext(input, adv), JEV_TIMEOUT_MS);
+        this.hintBusy = false;
+        if (this.destroyed) return;
+        this.hintBtn.text = '提示';
+        if (serial !== this.turnSerial || !this.myTurn) return; // 已经不是这一手了
+        if (res?.ranking.length) {
+          const pos = new Map(res.ranking.map((id, i) => [id, i]));
+          opts = [...opts].sort((x, y) => (pos.get(x.id) ?? 999) - (pos.get(y.id) ?? 999));
+          this.hintByJev = true;
+        }
+      }
+      this.hintList = this.alignToColumns(opts);
       this.hintIdx = 0;
     }
-    if (!this.hintList.length) {
+    if (!this.hintList.some((o) => o.combo)) {
       this.toast('没有能大过上家的牌');
       return;
     }
-    const c = this.hintList[this.hintIdx % this.hintList.length];
+    const o = this.hintList[this.hintIdx % this.hintList.length];
     this.hintIdx++;
-    this.hand.select(c.cards);
+    if (o.combo) this.hand.select(o.combo.cards);
+    else this.hand.clearSelection();
+    const head = this.hintByJev ? 'AI 推荐' : '提示';
+    this.showReason(`${head}：${o.combo ? '' : '建议不出。'}${o.reasons.slice(0, 2).join('；')}`);
+  }
+
+  /** 提示的牌如果和理好的某一列是同一手牌（类型、大小都相同），就直接选那一列，不拆散别的列 */
+  private alignToColumns(opts: AdviceOption[]): AdviceOption[] {
+    const g = this.client.game;
+    const target = g.lastPlay?.combo ?? null;
+    return opts.map((o) => {
+      if (!o.combo) return o;
+      const c = o.combo;
+      for (const col of this.hand.cols) {
+        if (col.length !== c.cards.length) continue;
+        const m = resolvePlay(col, g.level, target).find((x) => x.type === c.type && x.value === c.value);
+        if (m) return { ...o, combo: { ...c, cards: [...col] } };
+      }
+      return o;
+    });
+  }
+
+  private showReason(text: string) {
+    this.reasonText.text = text;
+    this.reasonText.alpha = 1;
+    tween(this.reasonText, { alpha: 0 }, 600, { delay: 4000 });
   }
 
   private doPlay() {

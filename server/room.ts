@@ -4,6 +4,7 @@ import { Table, type TableEvent } from '../shared/table';
 import { partnerOf } from '../shared/game';
 import type { NetEvent, PlayerInfo, RoomInfo, ServerMsg, Snapshot, Voice } from '../shared/protocol';
 import type { ChatKind } from '../shared/chat';
+import { isConfigured as jevReady } from './jev';
 import type { ComboType } from '../shared/combo';
 
 const AI_NAMES = ['阿强', '小美', '老王', '二丫', '大刘', '阿珍', '胖虎', '小雪', '铁柱', '翠花'];
@@ -91,7 +92,7 @@ export class Room {
       this.tokenMap.set(token, this);
       this.broadcastRoom();
       if (this.table) {
-        this.send(ws, { t: 'start', seat: existing, players: this.players });
+        this.send(ws, { t: 'start', seat: existing, players: this.players, jev: jevReady() });
         this.send(ws, { t: 'snapshot', s: this.snapshot(existing) });
         this.broadcastEvent({ type: 'presence', seat: existing, online: true });
         if (h.autoByDrop) { h.autoByDrop = false; this.table.setAuto(existing, false); }
@@ -208,7 +209,7 @@ export class Room {
     const table = new Table(this.seats.map((s) => s!.kind === 'ai'));
     this.table = table;
     table.on((e) => this.onTableEvent(e));
-    for (const [i, h] of this.humans()) this.send(h.ws, { t: 'start', seat: i, players: this.players });
+    for (const [i, h] of this.humans()) this.send(h.ws, { t: 'start', seat: i, players: this.players, jev: jevReady() });
     this.broadcastRoom();
     table.start();
     return null;

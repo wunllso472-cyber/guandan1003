@@ -178,7 +178,7 @@ function onServer(m: ServerMsg) {
     case 'start':
       roomUI.hide();
       lobby.classList.add('hidden');
-      startNetGame(m.seat, m.players);
+      startNetGame(m.seat, m.players, !!m.jev);
       break;
     case 'left':
       backToLobby();
@@ -190,9 +190,9 @@ function onServer(m: ServerMsg) {
   }
 }
 
-function startNetGame(seat: number, players: PlayerInfo[]) {
+function startNetGame(seat: number, players: PlayerInfo[], jev: boolean) {
   void enterLandscape();
-  const net = new NetGame(conn!, seat, players);
+  const net = new NetGame(conn!, seat, players, jev);
   showScene(net, () => leaveRoom());
 }
 

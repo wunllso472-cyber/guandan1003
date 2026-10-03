@@ -1,5 +1,4 @@
 // 联机对局：把服务器事件应用到本地状态镜像，再转发给视图。
-import { hintOptions } from '@shared/ai';
 import { partnerOf, type Phase } from '@shared/game';
 import type { Combo } from '@shared/combo';
 import type { ChatKind } from '@shared/chat';
@@ -30,8 +29,12 @@ export class NetGame implements GameClient {
   private listeners: ((e: ClientEvent) => void)[] = [];
   private off: () => void;
 
-  constructor(private conn: Connection, readonly mySeat: number, readonly players: PlayerInfo[]) {
+  /** 服务端未配置 Jev 时不提供该方法，提示直接用本地结果 */
+  requestAdvice?: (ctx: unknown, timeoutMs: number) => Promise<{ ranking: string[]; confidence?: number } | null>;
+
+  constructor(private conn: Connection, readonly mySeat: number, readonly players: PlayerInfo[], jev = false) {
     this.off = conn.onMessage((m) => this.onServer(m));
+    if (jev) this.requestAdvice = (ctx, timeoutMs) => this.askAdvice(ctx, timeoutMs);
   }
 
   on(fn: (e: ClientEvent) => void) { this.listeners.push(fn); }
@@ -41,6 +44,7 @@ export class NetGame implements GameClient {
     if (m.t === 'ev') this.apply(m.e);
     else if (m.t === 'snapshot') this.load(m.s);
     else if (m.t === 'error') this.emit({ type: 'error', msg: m.msg });
+    else if (m.t === 'advice') this.advicePending.get(m.id)?.(m.ranking ? { ranking: m.ranking, confidence: m.confidence } : null);
   }
 
   private apply(e: NetEvent) {
@@ -131,11 +135,15 @@ export class NetGame implements GameClient {
   isAuto(seat: number) { return this.auto[seat]; }
   isOnline(seat: number) { return this.online[seat]; }
 
-  hints(): Combo[] {
-    const g = this.game;
-    return hintOptions({
-      seat: this.mySeat, hand: g.hands[this.mySeat], level: g.level,
-      target: g.lastPlay?.combo ?? null, targetSeat: g.lastPlay?.seat ?? null, handCounts: g.counts,
+  private adviceSeq = 0;
+  private advicePending = new Map<number, (r: { ranking: string[]; confidence?: number } | null) => void>();
+
+  private askAdvice(ctx: unknown, timeoutMs: number): Promise<{ ranking: string[]; confidence?: number } | null> {
+    const id = ++this.adviceSeq;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { this.advicePending.delete(id); resolve(null); }, timeoutMs);
+      this.advicePending.set(id, (r) => { clearTimeout(timer); this.advicePending.delete(id); resolve(r); });
+      this.conn.send({ t: 'advise', id, ctx });
     });
   }
 

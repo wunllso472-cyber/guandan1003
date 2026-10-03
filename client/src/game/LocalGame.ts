@@ -38,7 +38,6 @@ export class LocalGame implements GameClient {
   isAuto(seat: number) { return this.table.auto[seat]; }
   isOnline() { return true; }
   setAuto(on: boolean) { this.table.setAuto(this.mySeat, on); }
-  hints(): Combo[] { return this.table.hints(this.mySeat); }
   chat(kind: ChatKind, id: number, to?: number) { return this.table.chat(this.mySeat, kind, id, to); }
   play(cards: number[], combo?: Combo) { return this.table.play(this.mySeat, cards, combo); }
   pass() { return this.table.pass(this.mySeat); }

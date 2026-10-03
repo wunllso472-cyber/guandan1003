@@ -46,8 +46,9 @@ export interface GameClient {
   setAuto(on: boolean): void;
   isAuto(seat: number): boolean;
   isOnline(seat: number): boolean;
-  hints(): Combo[];
   chat(kind: ChatKind, id: number, to?: number): string | null;
+  /** 联机时向服务端请求 Jev 建议（单机没有此方法）；超时或失败返回 null */
+  requestAdvice?(ctx: unknown, timeoutMs: number): Promise<{ ranking: string[]; confidence?: number } | null>;
   nextRound(): void;
   restart(): void;
   dispose(): void;

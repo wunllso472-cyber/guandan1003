@@ -72,6 +72,8 @@ export type ClientMsg =
   | { t: 'auto'; on: boolean }
   | { t: 'next' }
   | { t: 'chat'; kind: ChatKind; id: number; to?: number }
+  /** 请求 Jev 出牌建议；ctx 由客户端按自己的视角整理（见 shared/advisor.ts 的 buildJevContext） */
+  | { t: 'advise'; id: number; ctx: unknown }
   | { t: 'ping' };
 
 export type ServerMsg =
@@ -79,8 +81,11 @@ export type ServerMsg =
   | { t: 'welcome'; room: string | null }
   | { t: 'room'; room: RoomInfo; seat: number }
   | { t: 'left' }
-  | { t: 'start'; seat: number; players: PlayerInfo[] }
+  /** jev：服务端是否已配置 Jev 出牌建议 */
+  | { t: 'start'; seat: number; players: PlayerInfo[]; jev?: boolean }
   | { t: 'snapshot'; s: Snapshot }
   | { t: 'ev'; e: NetEvent }
   | { t: 'error'; msg: string }
+  /** Jev 建议：ranking 为候选 id 按推荐程度排序；未配置、超时或出错时为 null */
+  | { t: 'advice'; id: number; ranking: string[] | null; confidence?: number; error?: string }
   | { t: 'pong' };
