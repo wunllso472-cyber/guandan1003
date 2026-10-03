@@ -39,16 +39,20 @@ export interface HandArea { left: number; right: number; bottom: number; maxStac
 
 export class HandView extends Container {
   cols: number[][] = [];
-  mode: ArrangeMode = 'rank';
+  mode: ArrangeMode = 'smart';
   selected = new Set<number>();
   sprites = new Map<number, CardSprite>();
   level = 2;
   area: HandArea = { left: 0, right: 1280, bottom: 740, maxStack: 330 };
   enabled = true;
   onChange?: () => void;
-  /** 点击空白处清除选择时由场景调用 */
+  /** 智能补全：没有选牌时点一张牌，返回要一起选中的牌（不需要时返回 null） */
+  autoPick?: (id: number) => number[] | null;
 
   private swipe: { visited: Set<number>; to: boolean } | null = null;
+  /** 上一次点击，用于识别双击；colWasFull 记录第一次点击前整列是否已全部选中 */
+  private lastTap: { id: number; t: number; colWasFull: boolean } | null = null;
+  private static readonly DOUBLE_TAP_MS = 320;
 
   constructor() {
     super();
@@ -95,15 +99,46 @@ export class HandView extends Container {
     s.on('pointerdown', (e: FederatedPointerEvent) => {
       e.stopPropagation();
       if (!this.enabled) return;
-      const to = !this.selected.has(id);
-      this.swipe = { visited: new Set([id]), to };
-      this.setSelected(id, to);
-      sound.play('select');
-      this.onChange?.();
+      this.onTap(id);
     });
     this.sprites.set(id, s);
     this.addChild(s);
     return s;
+  }
+
+  private colOf(id: number): number[] | undefined {
+    return this.cols.find((c) => c.includes(id));
+  }
+
+  private onTap(id: number) {
+    const now = performance.now();
+    const col = this.colOf(id) ?? [id];
+    // 双击：选中或取消整列
+    if (this.lastTap && this.lastTap.id === id && now - this.lastTap.t < HandView.DOUBLE_TAP_MS) {
+      const to = !this.lastTap.colWasFull;
+      this.lastTap = null;
+      this.swipe = null;
+      for (const x of col) this.setSelected(x, to);
+      sound.play('select');
+      this.onChange?.();
+      return;
+    }
+    this.lastTap = { id, t: now, colWasFull: col.every((x) => this.selected.has(x)) };
+    // 跟牌时智能补全：没有选牌时，自动选中包含这张牌、刚好能压过上家的一组
+    if (this.selected.size === 0 && this.autoPick) {
+      const ids = this.autoPick(id);
+      if (ids && ids.length > 1) {
+        this.select(ids);
+        this.swipe = { visited: new Set(ids), to: true };
+        sound.play('select');
+        return;
+      }
+    }
+    const to = !this.selected.has(id);
+    this.swipe = { visited: new Set([id]), to };
+    this.setSelected(id, to);
+    sound.play('select');
+    this.onChange?.();
   }
 
   private onMove(e: FederatedPointerEvent) {
@@ -176,8 +211,11 @@ export class HandView extends Container {
     return pos;
   }
 
+  /** 收到贡牌/还贡：按牌型模式时整手重新理牌，否则插到同点数的列；新牌高亮选中 */
   addCards(ids: number[]) {
-    this.cols = insertCards(this.cols, ids, this.level);
+    this.cols = this.mode === 'smart'
+      ? arrangeSmart([...this.hand(), ...ids], this.level)
+      : insertCards(this.cols, ids, this.level);
     for (const id of ids) {
       const s = this.makeSprite(id);
       s.position.set((this.area.left + this.area.right) / 2, this.area.bottom - 400);

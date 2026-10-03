@@ -1,7 +1,7 @@
-// 手牌分列：每列一组牌，列内从上到下排列。左边是大牌。
-import { card, cardValue, sortByValueDesc } from '@shared/cards';
+// 手牌分列：每列一组牌，列内从上到下排列（index 0 在最上面）。左边是大牌。
+import { card, cardValue, isWild, sortByValueDesc } from '@shared/cards';
 import { bestSplit } from '@shared/ai';
-import { isBomb, bombLevel } from '@shared/combo';
+import { isBomb, bombLevel, parseCombos, type Combo } from '@shared/combo';
 
 export type ArrangeMode = 'rank' | 'smart';
 
@@ -21,20 +21,51 @@ export function arrangeByRank(hand: number[], level: number): number[][] {
   return cols;
 }
 
-/** 一键理牌：炸弹、同花顺、连牌各成一列放左边，其余按点数。 */
+/** 炸弹之后各类牌的先后：连牌 → 三带二 → 三张 → 对子 → 单张 */
+const TYPE_ORDER: Record<string, number> = {
+  plate: 0, tube: 1, straight: 2, fullhouse: 3, triple: 4, pair: 5, single: 6,
+};
+
+/** 连牌的最大一张（用于比大小） */
+function chainTop(c: Combo): number {
+  const len = c.type === 'straight' ? 5 : c.type === 'tube' ? 3 : 2;
+  return c.value + len - 1;
+}
+
+/** 一列内的顺序：从上到下由小到大，最下面完整露出的是这一列最大的牌 */
+function columnOrder(c: Combo, level: number): number[] {
+  switch (c.type) {
+    case 'straight': case 'tube': case 'plate': case 'straightflush':
+      return [...c.cards]; // 拆牌结果已按连牌位置从小到大排列，逢人配在它替代的位置
+    case 'fullhouse': {
+      // 三张在上、对子在下；用规则引擎重新识别，得到逢人配的正确位置
+      const fh = parseCombos(c.cards, level).find((x) => x.type === 'fullhouse');
+      return fh ? [...fh.cards] : [...c.cards];
+    }
+    default: {
+      // 同点数的组：逢人配放最上面，露出的是本点数的牌
+      const wild = c.cards.filter((id) => isWild(id, level));
+      const nat = sortByValueDesc(c.cards.filter((id) => !isWild(id, level)), level).reverse();
+      return [...wild, ...nat];
+    }
+  }
+}
+
+/**
+ * 一键理牌：每列都是一手能出的牌。
+ * 炸弹在最左（天王炸 > 大炸 > 同花顺 > 小炸，越大越左），之后依次是连牌、三带二、三张、对子、单张，同类大的在左。
+ */
 export function arrangeSmart(hand: number[], level: number): number[][] {
-  const split = bestSplit(hand, level);
-  const bombs = split.combos.filter(isBomb).sort((a, b) => bombLevel(b) - bombLevel(a) || b.value - a.value);
-  const chains = split.combos
-    .filter((c) => c.type === 'straight' || c.type === 'tube' || c.type === 'plate')
-    .sort((a, b) => b.value - a.value);
-  const used = new Set([...bombs, ...chains].flatMap((c) => c.cards));
-  const rest = hand.filter((id) => !used.has(id));
-  return [
-    ...bombs.map((c) => [...c.cards]),
-    ...chains.map((c) => [...c.cards].reverse()),
-    ...arrangeByRank(rest, level),
-  ];
+  // 用规则引擎重新识别每组的大小（逢人配可能有多种解释，出牌时按最大的算）
+  const combos = bestSplit(hand, level).combos.map((c) => parseCombos(c.cards, level).find((x) => x.type === c.type) ?? c);
+  const bombs = combos.filter(isBomb).sort((a, b) => bombLevel(b) - bombLevel(a) || b.value - a.value);
+  const rest = combos.filter((c) => !isBomb(c)).sort((a, b) => {
+    const ta = TYPE_ORDER[a.type], tb = TYPE_ORDER[b.type];
+    const chain = (t: number) => t <= 2;
+    if (chain(ta) && chain(tb)) return chainTop(b) - chainTop(a) || ta - tb;
+    return ta - tb || b.value - a.value;
+  });
+  return [...bombs, ...rest].map((c) => columnOrder(c, level));
 }
 
 /** 把选中的牌单独成一列放到最左边。 */

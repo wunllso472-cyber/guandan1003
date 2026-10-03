@@ -1,6 +1,6 @@
 // 中等水平 AI：把手牌拆成“最少手数”的组合，据此决定出牌、跟牌、进还贡。
 import { card, isWild, value, cardValue, BIG_JOKER, SMALL_JOKER } from './cards';
-import { bombLevel, chainRank, isBomb, type Combo, type ComboType } from './combo';
+import { bombLevel, chainRank, isBomb, parseCombos, type Combo, type ComboType } from './combo';
 import { findAllPlays } from './finder';
 
 // ---------- 拆牌 ----------
@@ -16,61 +16,84 @@ function comboCost(type: ComboType, v: number, size = 0): number {
     case 'jokerbomb': return -1.6;
     case 'straightflush': return -1.25;
     case 'bomb': return -1 - 0.05 * size;
-    case 'single': return v >= 16 ? 0.3 : v === 15 ? 0.6 : v === 14 ? 0.8 : v >= 11 ? 1.0 : 1.2;
-    case 'pair': return v >= 15 ? 0.5 : v === 14 ? 0.7 : v >= 11 ? 0.9 : 1.1;
+    // 小单张、小对子难以出手，代价更高；王、级牌、A 有控制力，代价低
+    case 'single': return v >= 16 ? 0.3 : v === 15 ? 0.6 : v === 14 ? 0.8 : v >= 11 ? 1.0 : v >= 7 ? 1.2 : 1.35;
+    case 'pair': return v >= 15 ? 0.5 : v === 14 ? 0.7 : v >= 11 ? 0.9 : v >= 7 ? 1.1 : 1.2;
     case 'triple': return v >= 14 ? 0.7 : 1.0;
     case 'fullhouse': return v >= 13 ? 0.8 : 1.0;
     default: return v >= 9 ? 0.7 : 0.9; // 连牌，v 为起点
   }
 }
 
-/** 余下的散牌按点数分组：炸弹/三张/对子/单张，逢人配补炸弹，三张带对子。 */
-function leaf(counts: number[], wilds: number, level: number): { score: number; groups: Group[] } {
+/** 逢人配的去向：补到某个点数上，或单独作为单张/对子 */
+type WildPlan = number[]; // 每个元素是被补的 rank，0 表示单独使用
+
+/** 按给定的逢人配去向，把散牌分组并计算代价。 */
+function groupLeaf(counts: number[], plan: WildPlan, level: number): { score: number; groups: Group[] } {
+  const v = (r: number) => value(r, level);
+  const add = new Map<number, number>();
+  let loose = 0;
+  for (const r of plan) {
+    if (r === 0) loose++;
+    else add.set(r, (add.get(r) ?? 0) + 1);
+  }
+  const triples: Part[] = [], pairs: Part[] = [], singles: Part[] = [];
   const groups: Group[] = [];
-  const triples: number[] = [], pairs: number[] = [], singles: number[] = [], bombs: Part[] = [];
   for (let r = 2; r <= BIG_JOKER; r++) {
     const c = counts[r] ?? 0;
+    const w = add.get(r) ?? 0;
     if (!c) continue;
-    if (c >= 4) bombs.push({ rank: r, n: c });
-    else if (c === 3) triples.push(r);
-    else if (c === 2) pairs.push(r);
-    else singles.push(r);
+    const n = c + w;
+    const part: Part = { rank: r, n: c };
+    if (n >= 4) groups.push({ type: 'bomb', parts: [part], wild: w, value: v(r) });
+    else if (n === 3) triples.push(part);
+    else if (n === 2) pairs.push(part);
+    else singles.push(part);
   }
-  const v = (r: number) => value(r, level);
-  let w = wilds;
-  const wildOn = new Map<number, number>();
-  // 逢人配优先把最小的三张补成炸弹
-  triples.sort((a, b) => v(a) - v(b));
-  while (w > 0 && triples.length) {
-    const r = triples.shift()!;
-    bombs.push({ rank: r, n: 3 });
-    wildOn.set(r, 1);
-    w--;
-  }
-  for (const b of bombs) {
-    const extra = wildOn.get(b.rank) ?? 0;
-    groups.push({ type: 'bomb', parts: [b], wild: extra, value: v(b.rank) });
-  }
-  if (w > 0) {
-    groups.push({ type: w === 2 ? 'pair' : 'single', parts: [], wild: w, value: 15 });
-  }
+  const wildOf = (p: Part) => add.get(p.rank) ?? 0;
+  if (loose > 0) groups.push({ type: loose === 2 ? 'pair' : 'single', parts: [], wild: loose, value: 15 });
   // 三带二：小对子配三张（不带王对）
-  pairs.sort((a, b) => v(a) - v(b));
-  const pairPool = pairs.filter((r) => r < SMALL_JOKER);
+  triples.sort((x, y) => v(x.rank) - v(y.rank));
+  pairs.sort((x, y) => v(x.rank) - v(y.rank));
+  const pairPool = pairs.filter((p) => p.rank < SMALL_JOKER);
   for (const t of triples) {
     const p = pairPool.shift();
-    if (p !== undefined) {
+    if (p) {
       pairs.splice(pairs.indexOf(p), 1);
-      groups.push({ type: 'fullhouse', parts: [{ rank: t, n: 3 }, { rank: p, n: 2 }], wild: 0, value: v(t) });
+      groups.push({ type: 'fullhouse', parts: [t, p], wild: wildOf(t) + wildOf(p), value: v(t.rank) });
     } else {
-      groups.push({ type: 'triple', parts: [{ rank: t, n: 3 }], wild: 0, value: v(t) });
+      groups.push({ type: 'triple', parts: [t], wild: wildOf(t), value: v(t.rank) });
     }
   }
-  for (const p of pairs) groups.push({ type: 'pair', parts: [{ rank: p, n: 2 }], wild: 0, value: v(p) });
-  for (const s of singles) groups.push({ type: 'single', parts: [{ rank: s, n: 1 }], wild: 0, value: v(s) });
+  for (const p of pairs) groups.push({ type: 'pair', parts: [p], wild: wildOf(p), value: v(p.rank) });
+  for (const p of singles) groups.push({ type: 'single', parts: [p], wild: 0, value: v(p.rank) });
   let score = 0;
   for (const g of groups) score += comboCost(g.type, g.value, g.parts.reduce((a, p) => a + p.n, 0) + g.wild);
   return { score, groups };
+}
+
+/** 余下的散牌分组；逢人配在“补炸弹/补三张/补对子/补单张/单独使用”之间取最优。 */
+function leaf(counts: number[], wilds: number, level: number): { score: number; groups: Group[] } {
+  if (wilds === 0) return groupLeaf(counts, [], level);
+  const v = (r: number) => value(r, level);
+  // 每类只取最小和最大的点数作候选，控制枚举量
+  const byCount = (k: (c: number) => boolean) => {
+    const rs: number[] = [];
+    for (let r = 2; r <= 14; r++) if ((counts[r] ?? 0) > 0 && k(counts[r])) rs.push(r);
+    rs.sort((a, b) => v(a) - v(b));
+    return rs.length ? [...new Set([rs[0], rs[rs.length - 1]])] : [];
+  };
+  const targets = [0, ...byCount((c) => c >= 4), ...byCount((c) => c === 3), ...byCount((c) => c === 2), ...byCount((c) => c === 1)];
+  let best: { score: number; groups: Group[] } | null = null;
+  const tryPlan = (plan: WildPlan) => {
+    const r = groupLeaf(counts, plan, level);
+    if (!best || r.score < best.score - 1e-9) best = r;
+  };
+  for (const a of targets) {
+    if (wilds === 1) { tryPlan([a]); continue; }
+    for (const b of targets) tryPlan([a, b]);
+  }
+  return best!;
 }
 
 interface SearchResult { score: number; chains: ChainSpec[]; groups: Group[] }
@@ -95,7 +118,8 @@ function search(counts: number[], wilds: number, level: number, minKey: number, 
           natural += use;
           need += mult - use;
         }
-        if (!ok || need > wilds || need > 1 || natural === 0) continue;
+        // 允许用逢人配补连牌（最多 2 张），与补炸弹、同花顺等用法一起比较代价
+        if (!ok || need > wilds || need > 2) continue;
         const next = [...counts];
         for (let p = 0; p < len; p++) {
           const r = chainRank(start, p);
@@ -120,10 +144,10 @@ export function bestSplit(hand: number[], level: number): Split {
   const wildIds = hand.filter((id) => isWild(id, level));
   const naturals = hand.filter((id) => !isWild(id, level));
 
-  // 先挑出天王炸和同花顺（不使用逢人配）的组合方案
+  // 先挑出天王炸和同花顺（可用逢人配补齐）的组合方案
   const jokers = naturals.filter((id) => card(id).rank >= SMALL_JOKER);
   const hasJokerBomb = jokers.length === 4;
-  const sfs = findAllPlays(naturals, level).filter((c) => c.type === 'straightflush');
+  const sfs = findAllPlays(hand, level).filter((c) => c.type === 'straightflush');
   const options: Combo[][] = [[]];
   for (let i = 0; i < sfs.length && i < 8; i++) {
     options.push([sfs[i]]);
@@ -146,13 +170,14 @@ export function bestSplit(hand: number[], level: number): Split {
     const counts: number[] = [];
     for (const [r, ids] of pool) counts[r] = ids.length;
     for (let r = 0; r <= BIG_JOKER; r++) counts[r] = counts[r] ?? 0;
-    const res = search(counts, wildIds.length, level, 0, new Map(), 0);
+    const wildsLeft = wildIds.filter((id) => !used.has(id));
+    const res = search(counts, wildsLeft.length, level, 0, new Map(), 0);
     let score = res.score + pre.reduce((a, c) => a + comboCost(c.type, c.value), 0);
     if (hasJokerBomb) score += comboCost('jokerbomb', 0);
     if (best && score >= best.score - 1e-9) continue;
 
     // 落实成具体的牌
-    const wpool = [...wildIds];
+    const wpool = [...wildsLeft];
     const takeR = (r: number, n: number) => pool.get(r)!.splice(0, n);
     const combos: Combo[] = [...pre];
     if (hasJokerBomb) combos.push({ type: 'jokerbomb', cards: jokers, value: 0 });
@@ -171,6 +196,10 @@ export function bestSplit(hand: number[], level: number): Split {
       for (const p of g.parts) ids.push(...takeR(p.rank, p.n));
       for (let k = 0; k < g.wild; k++) ids.push(wpool.shift()!);
       combos.push({ type: g.type, cards: ids, value: g.value });
+    }
+    // 按点数组出的顺子可能碰巧同花，那就是同花顺（炸弹）
+    for (const c of combos) {
+      if (c.type === 'straight' && parseCombos(c.cards, level).some((x) => x.type === 'straightflush')) c.type = 'straightflush';
     }
     best = { score, combos };
   }

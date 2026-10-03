@@ -11,6 +11,8 @@ import type { ClientEvent, GameClient } from '../game/types';
 import { Effects } from './Effects';
 import { ChatLayer } from './ChatLayer';
 import { sound } from '../audio/Sound';
+import { prefs, savePrefs } from '../game/prefs';
+import { autoPickFor } from '../game/autopick';
 
 const PAD = 28; // 刘海屏安全边距
 
@@ -142,6 +144,11 @@ export class TableScene extends Container {
     this.addChild(this.watchTag);
 
     this.hand.onChange = () => this.refreshButtons();
+    this.hand.autoPick = (id) => {
+      const g = this.client.game;
+      if (!prefs.autoPick || !this.myTurn || g.phase !== 'play' || !g.lastPlay || this.watching >= 0) return null;
+      return autoPickFor(id, g.hands[this.client.mySeat], g.level, g.lastPlay.combo);
+    };
     client.on((e) => this.onEvent(e));
     Ticker.shared.add(this.tickTimer, this);
   }
@@ -581,7 +588,7 @@ export class TableScene extends Container {
         ['继续游戏', 'orange', () => this.clearOverlay()],
         ['离开房间', 'gray', () => this.onExit()],
       ];
-    items.splice(1, 0, ['声音设置', 'blue', () => this.showSettings()]);
+    items.splice(1, 0, ['设置', 'blue', () => this.showSettings()]);
     items.forEach(([t, st, fn], i) => {
       const b = new Button(t, st, 260, 60, fn);
       b.y = (this.client.canRestart ? -90 : -50) + i * 80;
@@ -590,15 +597,16 @@ export class TableScene extends Container {
   }
 
   private showSettings() {
-    const box = this.panel(480, 400, '声音设置');
+    const box = this.panel(480, 520, '设置');
     const rows: [string, () => string, () => void][] = [
       ['音效', () => (sound.settings.sfx ? '开' : '关'), () => sound.save({ sfx: !sound.settings.sfx })],
       ['背景音乐', () => (sound.settings.music ? '开' : '关'), () => sound.save({ music: !sound.settings.music })],
       ['出牌语音', () => (sound.settings.voice ? '开' : '关'), () => sound.save({ voice: !sound.settings.voice })],
       ['我的声音', () => (sound.settings.myVoice === 'male' ? '男声' : '女声'), () => sound.save({ myVoice: sound.settings.myVoice === 'male' ? 'female' : 'male' })],
+      ['智能选牌', () => (prefs.autoPick ? '开' : '关'), () => savePrefs({ autoPick: !prefs.autoPick })],
     ];
     rows.forEach(([label, value, toggle], i) => {
-      const y = -100 + i * 66;
+      const y = -150 + i * 64;
       this.addLabel(box, label, -170, y, 26, 0x5a2e10, 0);
       const btn = new Button(value(), 'green', 130, 50, () => {
         toggle();
@@ -610,7 +618,7 @@ export class TableScene extends Container {
     });
     this.addLabel(box, '“我的声音”从下一盘开始生效', 0, 150, 18, 0x9a6b2a);
     const ok = new Button('完成', 'orange', 160, 54, () => this.clearOverlay());
-    ok.y = 110 + 80;
+    ok.y = 205;
     box.addChild(ok);
   }
 
