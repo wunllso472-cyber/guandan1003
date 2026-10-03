@@ -69,6 +69,16 @@ export function tween(target: any, to: Record<string, number>, dur = 250, opts: 
   });
 }
 
+/** 只取消指定属性的补间（其余属性继续），例如重新排版时取消位置动画但保留淡入 */
+export function killTweenProps(target: any, keys: string[]) {
+  for (let i = active.length - 1; i >= 0; i--) {
+    const a = active[i];
+    if (a.target !== target) continue;
+    for (const k of keys) delete a.to[k];
+    if (!Object.keys(a.to).length) { active.splice(i, 1); a.resolve(); }
+  }
+}
+
 export function killTweens(target: any) {
   for (let i = active.length - 1; i >= 0; i--) {
     if (active[i].target === target) { active[i].resolve(); active.splice(i, 1); }

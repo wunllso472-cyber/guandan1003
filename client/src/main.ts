@@ -56,8 +56,12 @@ function relayout() {
   scene?.layout(lw / s, lh / s);
 }
 
-window.addEventListener('resize', () => setTimeout(relayout, 50));
-window.addEventListener('orientationchange', () => setTimeout(relayout, 300));
+// 尺寸变化后重新排版；全屏切换和转屏时尺寸可能分几次才稳定，稍后再排一次
+const relayoutSoon = () => { setTimeout(relayout, 50); setTimeout(relayout, 400); };
+window.addEventListener('resize', relayoutSoon);
+window.addEventListener('orientationchange', relayoutSoon);
+document.addEventListener('fullscreenchange', relayoutSoon);
+window.visualViewport?.addEventListener('resize', relayoutSoon);
 
 // ---------- 大厅 ----------
 const $ = (id: string) => document.getElementById(id)!;

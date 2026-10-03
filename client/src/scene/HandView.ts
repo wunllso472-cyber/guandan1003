@@ -2,7 +2,7 @@ import { Container, Sprite, FederatedPointerEvent, Point } from 'pixi.js';
 import { isWild } from '@shared/cards';
 import { CARD_W, CARD_H, cardTexture, wildBadgeTexture, shadowTexture, SHADOW_PAD } from '../gfx/textures';
 import { sound } from '../audio/Sound';
-import { tween, ease } from '../gfx/tween';
+import { tween, ease, killTweenProps } from '../gfx/tween';
 import { arrangeByRank, arrangeSmart, groupSelected, insertCards, removeCards, type ArrangeMode } from '../game/arrange';
 
 const SELECT_TINT = 0x9ec2ff;
@@ -248,7 +248,11 @@ export class HandView extends Container {
         const y = bottom - HH - (col.length - 1 - i) * vo;
         s.zIndex = ci * 20 + i;
         if (animate) tween(s, { x, y }, 220);
-        else s.position.set(x, y);
+        else {
+          // 取消还在进行的位置动画（例如发牌时屏幕尺寸变了），否则动画结束后牌会回到旧位置
+          killTweenProps(s, ['x', 'y']);
+          s.position.set(x, y);
+        }
       });
     });
   }
