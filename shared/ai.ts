@@ -1,0 +1,308 @@
+// 中等水平 AI：把手牌拆成“最少手数”的组合，据此决定出牌、跟牌、进还贡。
+import { card, isWild, value, cardValue, BIG_JOKER, SMALL_JOKER } from './cards';
+import { bombLevel, chainRank, isBomb, type Combo, type ComboType } from './combo';
+import { findAllPlays } from './finder';
+
+// ---------- 拆牌 ----------
+
+interface ChainSpec { type: ComboType; start: number; len: number; mult: number }
+interface Part { rank: number; n: number }
+interface Group { type: ComboType; parts: Part[]; wild: number; value: number }
+
+const CHAIN_DEFS: [ComboType, number, number][] = [['straight', 5, 1], ['tube', 3, 2], ['plate', 2, 3]];
+
+function comboCost(type: ComboType, v: number, size = 0): number {
+  switch (type) {
+    case 'jokerbomb': return -1.6;
+    case 'straightflush': return -1.25;
+    case 'bomb': return -1 - 0.05 * size;
+    case 'single': return v >= 16 ? 0.3 : v === 15 ? 0.6 : v === 14 ? 0.8 : v >= 11 ? 1.0 : 1.2;
+    case 'pair': return v >= 15 ? 0.5 : v === 14 ? 0.7 : v >= 11 ? 0.9 : 1.1;
+    case 'triple': return v >= 14 ? 0.7 : 1.0;
+    case 'fullhouse': return v >= 13 ? 0.8 : 1.0;
+    default: return v >= 9 ? 0.7 : 0.9; // 连牌，v 为起点
+  }
+}
+
+/** 余下的散牌按点数分组：炸弹/三张/对子/单张，逢人配补炸弹，三张带对子。 */
+function leaf(counts: number[], wilds: number, level: number): { score: number; groups: Group[] } {
+  const groups: Group[] = [];
+  const triples: number[] = [], pairs: number[] = [], singles: number[] = [], bombs: Part[] = [];
+  for (let r = 2; r <= BIG_JOKER; r++) {
+    const c = counts[r] ?? 0;
+    if (!c) continue;
+    if (c >= 4) bombs.push({ rank: r, n: c });
+    else if (c === 3) triples.push(r);
+    else if (c === 2) pairs.push(r);
+    else singles.push(r);
+  }
+  const v = (r: number) => value(r, level);
+  let w = wilds;
+  const wildOn = new Map<number, number>();
+  // 逢人配优先把最小的三张补成炸弹
+  triples.sort((a, b) => v(a) - v(b));
+  while (w > 0 && triples.length) {
+    const r = triples.shift()!;
+    bombs.push({ rank: r, n: 3 });
+    wildOn.set(r, 1);
+    w--;
+  }
+  for (const b of bombs) {
+    const extra = wildOn.get(b.rank) ?? 0;
+    groups.push({ type: 'bomb', parts: [b], wild: extra, value: v(b.rank) });
+  }
+  if (w > 0) {
+    groups.push({ type: w === 2 ? 'pair' : 'single', parts: [], wild: w, value: 15 });
+  }
+  // 三带二：小对子配三张（不带王对）
+  pairs.sort((a, b) => v(a) - v(b));
+  const pairPool = pairs.filter((r) => r < SMALL_JOKER);
+  for (const t of triples) {
+    const p = pairPool.shift();
+    if (p !== undefined) {
+      pairs.splice(pairs.indexOf(p), 1);
+      groups.push({ type: 'fullhouse', parts: [{ rank: t, n: 3 }, { rank: p, n: 2 }], wild: 0, value: v(t) });
+    } else {
+      groups.push({ type: 'triple', parts: [{ rank: t, n: 3 }], wild: 0, value: v(t) });
+    }
+  }
+  for (const p of pairs) groups.push({ type: 'pair', parts: [{ rank: p, n: 2 }], wild: 0, value: v(p) });
+  for (const s of singles) groups.push({ type: 'single', parts: [{ rank: s, n: 1 }], wild: 0, value: v(s) });
+  let score = 0;
+  for (const g of groups) score += comboCost(g.type, g.value, g.parts.reduce((a, p) => a + p.n, 0) + g.wild);
+  return { score, groups };
+}
+
+interface SearchResult { score: number; chains: ChainSpec[]; groups: Group[] }
+
+function search(counts: number[], wilds: number, level: number, minKey: number, memo: Map<string, SearchResult>, depth: number): SearchResult {
+  const key = counts.join(',') + '|' + wilds + '|' + minKey;
+  const hit = memo.get(key);
+  if (hit) return hit;
+  const lf = leaf(counts, wilds, level);
+  let best: SearchResult = { score: lf.score, chains: [], groups: lf.groups };
+  if (depth < 5) {
+    CHAIN_DEFS.forEach(([type, len, mult], ti) => {
+      for (let start = 1; start + len - 1 <= 14; start++) {
+        const k = ti * 20 + start;
+        if (k < minKey) continue;
+        let need = 0, ok = true, natural = 0;
+        for (let p = 0; p < len; p++) {
+          const c = counts[chainRank(start, p)] ?? 0;
+          const use = Math.min(mult, c);
+          // 不拆炸弹（除非拆后仍是炸弹）
+          if (c >= 4 && c - use < 4) { ok = false; break; }
+          natural += use;
+          need += mult - use;
+        }
+        if (!ok || need > wilds || need > 1 || natural === 0) continue;
+        const next = [...counts];
+        for (let p = 0; p < len; p++) {
+          const r = chainRank(start, p);
+          next[r] = (next[r] ?? 0) - Math.min(mult, next[r] ?? 0);
+        }
+        const sub = search(next, wilds - need, level, k, memo, depth + 1);
+        const score = sub.score + comboCost(type, start);
+        if (score < best.score - 1e-9) {
+          best = { score, chains: [{ type, start, len, mult }, ...sub.chains], groups: sub.groups };
+        }
+      }
+    });
+  }
+  memo.set(key, best);
+  return best;
+}
+
+export interface Split { score: number; combos: Combo[] }
+
+/** 计算手牌的最优拆分。 */
+export function bestSplit(hand: number[], level: number): Split {
+  const wildIds = hand.filter((id) => isWild(id, level));
+  const naturals = hand.filter((id) => !isWild(id, level));
+
+  // 先挑出天王炸和同花顺（不使用逢人配）的组合方案
+  const jokers = naturals.filter((id) => card(id).rank >= SMALL_JOKER);
+  const hasJokerBomb = jokers.length === 4;
+  const sfs = findAllPlays(naturals, level).filter((c) => c.type === 'straightflush');
+  const options: Combo[][] = [[]];
+  for (let i = 0; i < sfs.length && i < 8; i++) {
+    options.push([sfs[i]]);
+    for (let j = i + 1; j < sfs.length && j < 8; j++) {
+      if (sfs[j].cards.every((x) => !sfs[i].cards.includes(x))) options.push([sfs[i], sfs[j]]);
+    }
+  }
+
+  let best: Split | null = null;
+  for (const pre of options) {
+    const used = new Set(pre.flatMap((c) => c.cards));
+    const pool = new Map<number, number[]>();
+    for (const id of naturals) {
+      if (used.has(id)) continue;
+      if (hasJokerBomb && card(id).rank >= SMALL_JOKER) continue;
+      const r = card(id).rank;
+      if (!pool.has(r)) pool.set(r, []);
+      pool.get(r)!.push(id);
+    }
+    const counts: number[] = [];
+    for (const [r, ids] of pool) counts[r] = ids.length;
+    for (let r = 0; r <= BIG_JOKER; r++) counts[r] = counts[r] ?? 0;
+    const res = search(counts, wildIds.length, level, 0, new Map(), 0);
+    let score = res.score + pre.reduce((a, c) => a + comboCost(c.type, c.value), 0);
+    if (hasJokerBomb) score += comboCost('jokerbomb', 0);
+    if (best && score >= best.score - 1e-9) continue;
+
+    // 落实成具体的牌
+    const wpool = [...wildIds];
+    const takeR = (r: number, n: number) => pool.get(r)!.splice(0, n);
+    const combos: Combo[] = [...pre];
+    if (hasJokerBomb) combos.push({ type: 'jokerbomb', cards: jokers, value: 0 });
+    for (const ch of res.chains) {
+      const ids: number[] = [];
+      for (let p = 0; p < ch.len; p++) {
+        const r = chainRank(ch.start, p);
+        const got = pool.has(r) ? takeR(r, ch.mult) : [];
+        ids.push(...got);
+        for (let k = got.length; k < ch.mult; k++) ids.push(wpool.shift()!);
+      }
+      combos.push({ type: ch.type, cards: ids, value: ch.start });
+    }
+    for (const g of res.groups) {
+      const ids: number[] = [];
+      for (const p of g.parts) ids.push(...takeR(p.rank, p.n));
+      for (let k = 0; k < g.wild; k++) ids.push(wpool.shift()!);
+      combos.push({ type: g.type, cards: ids, value: g.value });
+    }
+    best = { score, combos };
+  }
+  return best!;
+}
+
+function without(hand: number[], cards: number[]): number[] {
+  const s = new Set(cards);
+  return hand.filter((x) => !s.has(x));
+}
+
+// ---------- 决策 ----------
+
+export interface AIContext {
+  seat: number;
+  hand: number[];
+  level: number;
+  /** 当前要压的牌；为 null 表示自己首出 */
+  target: Combo | null;
+  targetSeat: number | null;
+  /** 每个座位剩余张数（已出完为 0） */
+  handCounts: number[];
+}
+
+const partnerOf = (s: number) => (s + 2) % 4;
+
+function leadKey(c: Combo): number {
+  const bonus = c.type === 'single' ? 0 : c.type === 'pair' ? -1 : -3;
+  return c.value + (c.type === 'straight' || c.type === 'tube' || c.type === 'plate' ? 3 : 0) + bonus;
+}
+
+/** 首出时的候选顺序（提示也用）。 */
+export function leadOptions(ctx: AIContext): Combo[] {
+  const { hand, level, seat, handCounts } = ctx;
+  const split = bestSplit(hand, level);
+  if (split.combos.length === 1) return split.combos;
+  const nonBomb = split.combos.filter((c) => !isBomb(c)).sort((a, b) => leadKey(a) - leadKey(b));
+  const bombs = split.combos.filter(isBomb).sort((a, b) => bombLevel(a) - bombLevel(b) || a.value - b.value);
+  if (!nonBomb.length) return bombs;
+
+  const partner = partnerOf(seat);
+  const next = (seat + 1) % 4;
+  const pc = handCounts[partner];
+  // 帮对家走牌
+  if (pc === 1 || pc === 2) {
+    const t: ComboType = pc === 1 ? 'single' : 'pair';
+    const small = findAllPlays(hand, level).filter((c) => c.type === t).sort((a, b) => a.value - b.value);
+    if (small.length) return [small[0], ...nonBomb, ...bombs];
+  }
+  const nc = handCounts[next];
+  if (nc === 1 || nc === 2) {
+    const avoid: ComboType = nc === 1 ? 'single' : 'pair';
+    const safe = nonBomb.filter((c) => c.type !== avoid);
+    const risky = nonBomb.filter((c) => c.type === avoid).sort((a, b) => b.value - a.value);
+    return [...safe, ...risky, ...bombs];
+  }
+  return [...nonBomb, ...bombs];
+}
+
+interface Scored { combo: Combo; delta: number }
+
+/** 跟牌候选，按代价从小到大。 */
+export function followOptions(ctx: AIContext): Scored[] {
+  const { hand, level, target } = ctx;
+  const base = bestSplit(hand, level).score;
+  const cands = findAllPlays(hand, level, target);
+  const scored = cands.map((combo) => {
+    const rest = without(hand, combo.cards);
+    const s = rest.length ? bestSplit(rest, level).score : -10;
+    const delta = s - base + (isBomb(combo) ? 1.2 + bombLevel(combo) * 0.05 : 0) + combo.value * 0.01;
+    return { combo, delta };
+  });
+  return scored.sort((a, b) => a.delta - b.delta);
+}
+
+export function aiPlay(ctx: AIContext): Combo | null {
+  const { hand, target, targetSeat, seat, handCounts } = ctx;
+  if (!target) return leadOptions(ctx)[0];
+
+  const opts = followOptions(ctx);
+  if (!opts.length) return null;
+  const finishing = opts.find((o) => o.combo.cards.length === hand.length);
+  if (finishing) return finishing.combo;
+  if (targetSeat === partnerOf(seat)) return null;
+
+  const oppLeft = targetSeat !== null ? handCounts[targetSeat] : 27;
+  const urgent = oppLeft <= 6;
+  const nonBomb = opts.filter((o) => !isBomb(o.combo));
+  const pick = nonBomb.find((o) => o.delta <= (urgent ? 3 : -0.35));
+  if (pick) return pick.combo;
+
+  const bombs = opts.filter((o) => isBomb(o.combo));
+  if (!bombs.length) return null;
+  const restCombos = bestSplit(without(hand, bombs[0].combo.cards), ctx.level).combos.filter((c) => !isBomb(c)).length;
+  const bigTarget = !isBomb(target) && target.value >= 14;
+  if (oppLeft <= 8 || restCombos <= 2 || (bigTarget && hand.length <= 15)) {
+    if (isBomb(target) && oppLeft > 8 && restCombos > 2) return null;
+    return bombs[0].combo;
+  }
+  return null;
+}
+
+/** 提示顺序：首出按出牌顺序，跟牌按代价。 */
+export function hintOptions(ctx: AIContext): Combo[] {
+  if (!ctx.target) return leadOptions(ctx);
+  return followOptions(ctx).map((o) => o.combo);
+}
+
+/** 进贡：最大的牌（不含逢人配）。 */
+export function tributeCard(hand: number[], level: number): number {
+  let best = -1, bv = -1;
+  for (const id of hand) {
+    if (isWild(id, level)) continue;
+    const v = cardValue(id, level);
+    if (v > bv) { bv = v; best = id; }
+  }
+  return best;
+}
+
+/** 还贡：一张 10 及以下的牌，尽量不拆牌。 */
+export function returnCard(hand: number[], level: number): number {
+  let cands = hand.filter((id) => card(id).rank <= 10 && card(id).rank !== level);
+  if (!cands.length) cands = hand.filter((id) => card(id).rank <= 10);
+  if (!cands.length) return [...hand].sort((a, b) => cardValue(a, level) - cardValue(b, level))[0];
+  let best = cands[0], bs = Infinity;
+  const seen = new Set<number>();
+  for (const id of cands) {
+    const r = card(id).rank;
+    if (seen.has(r)) continue;
+    seen.add(r);
+    const s = bestSplit(without(hand, [id]), level).score + cardValue(id, level) * 0.02;
+    if (s < bs) { bs = s; best = id; }
+  }
+  return best;
+}

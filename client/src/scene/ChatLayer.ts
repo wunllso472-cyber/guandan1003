@@ -1,0 +1,321 @@
+// 聊天互动：聊天面板（快捷语/表情）、道具选择、气泡、道具飞行动画。
+import { Container, Graphics, Sprite, Text, Point } from 'pixi.js';
+import { PHRASES, EMOJI_NAMES, PROPS, type ChatMsg } from '@shared/chat';
+import { FONT_UI } from '../gfx/textures';
+import { emojiTexture, propTexture } from '../gfx/emoji';
+import { tween, ease, wait } from '../gfx/tween';
+import { sound } from '../audio/Sound';
+import type { Effects } from './Effects';
+import type { GameClient } from '../game/types';
+
+export interface ChatHost {
+  client: GameClient;
+  fx: Effects;
+  /** 座位头像中心（本层坐标） */
+  seatPos(seat: number): Point;
+  /** 座位相对自己的方位：0 下 1 右 2 上 3 左 */
+  rel(seat: number): number;
+  toast(text: string): void;
+  shakeHud(seat: number): void;
+}
+
+export class ChatLayer extends Container {
+  private panel = new Container();
+  private picker = new Container();
+  private bubbles = new Map<number, Container>();
+  private tab: 'phrase' | 'emoji' = 'phrase';
+  private DW = 1280;
+  private DH = 750;
+
+  constructor(private host: ChatHost) {
+    super();
+    this.addChild(this.panel, this.picker);
+    this.panel.visible = false;
+    this.picker.visible = false;
+    // 面板内的按下事件不能冒泡到牌桌：牌桌按下时会关闭面板，导致点击（按下+抬起）无法完成
+    for (const c of [this.panel, this.picker]) {
+      c.eventMode = 'static';
+      c.on('pointerdown', (e) => e.stopPropagation());
+    }
+  }
+
+  layout(DW: number, DH: number) {
+    this.DW = DW; this.DH = DH;
+    if (this.panel.visible) this.openPanel();
+    this.picker.visible = false;
+  }
+
+  get isOpen() { return this.panel.visible || this.picker.visible; }
+
+  closeAll() {
+    this.panel.visible = false;
+    this.picker.visible = false;
+  }
+
+  // ---------- 聊天面板 ----------
+
+  togglePanel() {
+    if (this.panel.visible) { this.panel.visible = false; return; }
+    this.picker.visible = false;
+    this.openPanel();
+  }
+
+  private lastSent = 0;
+
+  private send(kind: ChatMsg['kind'], id: number, to?: number) {
+    if (Date.now() - this.lastSent < 1500) { this.host.toast('发送太频繁了'); return; }
+    this.lastSent = Date.now();
+    const err = this.host.client.chat(kind, id, to);
+    if (err) this.host.toast(err);
+    this.closeAll();
+  }
+
+  private openPanel() {
+    const p = this.panel;
+    p.removeChildren().forEach((c) => c.destroy({ children: true }));
+    p.visible = true;
+    const W = 420, H = 420;
+    p.position.set(this.DW - W - 150, this.DH - H - 110);
+    const bg = new Graphics()
+      .roundRect(0, 0, W, H, 18).fill({ color: 0x1a120a, alpha: 0.88 }).stroke({ color: 0xf5c34a, alpha: 0.7, width: 2 });
+    bg.eventMode = 'static';
+    p.addChild(bg);
+    // 页签
+    (['phrase', 'emoji'] as const).forEach((t, i) => {
+      const active = this.tab === t;
+      const tb = new Container();
+      const g = new Graphics().roundRect(0, 0, 130, 40, 20).fill({ color: active ? 0xf0a020 : 0x3a2a18 });
+      const tx = new Text({ text: t === 'phrase' ? '快捷语' : '表情', style: { fontFamily: FONT_UI, fontSize: 20, fontWeight: '900', fill: active ? 0xffffff : 0xd8c8a8 } });
+      tx.anchor.set(0.5); tx.position.set(65, 20);
+      tb.addChild(g, tx);
+      tb.position.set(16 + i * 140, 14);
+      tb.eventMode = 'static'; tb.cursor = 'pointer';
+      tb.on('pointertap', (e) => { e.stopPropagation(); this.tab = t; this.openPanel(); });
+      p.addChild(tb);
+    });
+    const close = new Text({ text: '✕', style: { fontFamily: FONT_UI, fontSize: 26, fill: 0xd8c8a8 } });
+    close.anchor.set(0.5); close.position.set(W - 26, 34);
+    close.eventMode = 'static'; close.cursor = 'pointer';
+    close.on('pointertap', (e) => { e.stopPropagation(); this.closeAll(); });
+    p.addChild(close);
+
+    if (this.tab === 'phrase') {
+      PHRASES.forEach((text, i) => {
+        const row = new Container();
+        const g = new Graphics().roundRect(0, 0, W - 32, 40, 10).fill({ color: 0xffffff, alpha: i % 2 ? 0.04 : 0.09 });
+        const tx = new Text({ text, style: { fontFamily: FONT_UI, fontSize: 20, fill: 0xfff4dc } });
+        tx.position.set(14, 8);
+        row.addChild(g, tx);
+        row.position.set(16, 66 + i * 43);
+        row.eventMode = 'static'; row.cursor = 'pointer';
+        row.on('pointertap', (e) => { e.stopPropagation(); this.send('phrase', i); });
+        p.addChild(row);
+      });
+    } else {
+      EMOJI_NAMES.forEach((_, i) => {
+        const cell = new Container();
+        const g = new Graphics().roundRect(0, 0, 88, 88, 14).fill({ color: 0xffffff, alpha: 0.07 });
+        const s = new Sprite(emojiTexture(i));
+        s.width = s.height = 72;
+        s.position.set(8, 8);
+        cell.addChild(g, s);
+        cell.position.set(18 + (i % 4) * 98, 68 + Math.floor(i / 4) * 112);
+        cell.eventMode = 'static'; cell.cursor = 'pointer';
+        cell.on('pointertap', (e) => { e.stopPropagation(); this.send('emoji', i); });
+        p.addChild(cell);
+      });
+    }
+  }
+
+  // ---------- 道具选择 ----------
+
+  openPicker(target: number) {
+    this.panel.visible = false;
+    const p = this.picker;
+    p.removeChildren().forEach((c) => c.destroy({ children: true }));
+    p.visible = true;
+    const n = PROPS.length, cw = 82;
+    const W = n * cw + 20, H = 110;
+    const pos = this.host.seatPos(target);
+    const rel = this.host.rel(target);
+    let x = pos.x - W / 2, y = pos.y + 70;
+    if (rel === 1) { x = pos.x - W - 70; y = pos.y - H / 2; }
+    if (rel === 3) { x = pos.x + 70; y = pos.y - H / 2; }
+    x = Math.max(10, Math.min(this.DW - W - 10, x));
+    y = Math.max(10, Math.min(this.DH - H - 10, y));
+    p.position.set(x, y);
+    const bg = new Graphics().roundRect(0, 0, W, H, 16).fill({ color: 0x1a120a, alpha: 0.88 }).stroke({ color: 0xf5c34a, alpha: 0.7, width: 2 });
+    bg.eventMode = 'static';
+    p.addChild(bg);
+    PROPS.forEach((prop, i) => {
+      const cell = new Container();
+      const s = new Sprite(propTexture(prop.key));
+      s.anchor.set(0.5);
+      s.width = s.height = 58;
+      s.position.set(cw / 2, 40);
+      const t = new Text({ text: prop.name, style: { fontFamily: FONT_UI, fontSize: 16, fill: 0xfff4dc, fontWeight: '700' } });
+      t.anchor.set(0.5); t.position.set(cw / 2, 88);
+      cell.addChild(s, t);
+      cell.position.set(10 + i * cw, 0);
+      cell.eventMode = 'static'; cell.cursor = 'pointer';
+      cell.on('pointertap', (e) => { e.stopPropagation(); this.send('prop', i, target); });
+      p.addChild(cell);
+    });
+  }
+
+  // ---------- 收到消息 ----------
+
+  onChat(m: ChatMsg) {
+    const voice = this.host.client.players[m.seat]?.voice ?? 'male';
+    if (m.kind === 'phrase') {
+      sound.say(voice, `phrase_${m.id}`);
+      this.bubble(m.seat, PHRASES[m.id]);
+    } else if (m.kind === 'emoji') {
+      sound.play('chat');
+      this.bubble(m.seat, null, m.id);
+    } else if (m.to !== undefined) {
+      void this.throwProp(m.seat, m.to, PROPS[m.id].key);
+    }
+  }
+
+  private bubble(seat: number, text: string | null, emoji?: number) {
+    this.bubbles.get(seat)?.destroy({ children: true });
+    const b = new Container();
+    const rel = this.host.rel(seat);
+    const pos = this.host.seatPos(seat);
+    let content: Container;
+    let w: number, h: number;
+    if (text !== null) {
+      const t = new Text({ text, style: { fontFamily: FONT_UI, fontSize: 22, fontWeight: '700', fill: 0x3b1f08, wordWrap: true, wordWrapWidth: 300, breakWords: true } });
+      w = t.width + 32; h = t.height + 22;
+      t.position.set(16, 11);
+      content = t;
+    } else {
+      const s = new Sprite(emojiTexture(emoji!));
+      s.width = s.height = 84;
+      s.anchor.set(0.5);
+      s.position.set(56, 52);
+      w = 112; h = 104;
+      content = s;
+      void tween(s, { scale: s.scale.x * 1.15 }, 200, { ease: ease.outBack })
+        .then(() => tween(s, { scale: s.scale.x / 1.15 }, 200))
+        .then(() => tween(s, { rotation: 0.15 }, 150)).then(() => tween(s, { rotation: -0.15 }, 150)).then(() => tween(s, { rotation: 0 }, 150));
+    }
+    // 气泡朝向：左侧座位向右、右侧座位向左，上下座位向右偏
+    const toLeft = rel === 1;
+    const bg = new Graphics();
+    bg.roundRect(0, 0, w, h, 14).fill({ color: 0xfffaf0 }).stroke({ color: 0xc99a52, width: 2 });
+    const tailX = toLeft ? w - 20 : 20;
+    const tailY = rel === 2 ? 0 : h;
+    const dir = rel === 2 ? -1 : 1;
+    bg.poly([tailX - 9, tailY, tailX + 9, tailY, tailX + (toLeft ? 12 : -12), tailY + 14 * dir]).fill({ color: 0xfffaf0 });
+    b.addChild(bg, content);
+    let x: number, y: number;
+    if (rel === 0) { x = pos.x + 40; y = pos.y - h - 56; }
+    else if (rel === 1) { x = pos.x - w - 20; y = pos.y - h - 46; }
+    else if (rel === 2) { x = pos.x + 60; y = pos.y + 60; }
+    else { x = pos.x + 20; y = pos.y - h - 46; }
+    b.position.set(Math.max(8, Math.min(this.DW - w - 8, x)), Math.max(8, y));
+    b.alpha = 0;
+    b.eventMode = 'none';
+    this.addChildAt(b, 0);
+    this.bubbles.set(seat, b);
+    void tween(b, { alpha: 1 }, 160)
+      .then(() => wait(3000))
+      .then(() => { if (!b.destroyed) return tween(b, { alpha: 0 }, 300); })
+      .then(() => { if (!b.destroyed) b.destroy({ children: true }); if (this.bubbles.get(seat) === b) this.bubbles.delete(seat); });
+  }
+
+  /** 道具沿弧线飞向目标，到达后播放效果 */
+  private async throwProp(from: number, to: number, key: string) {
+    const a = this.host.seatPos(from), b = this.host.seatPos(to);
+    const s = new Sprite(propTexture(key));
+    s.anchor.set(0.5);
+    s.width = s.height = 64;
+    s.position.copyFrom(a);
+    this.addChild(s);
+    const ctrl = new Point((a.x + b.x) / 2, Math.min(a.y, b.y) - 160);
+    const state = { t: 0 };
+    const spin = key === 'egg' || key === 'bomb' ? 10 : key === 'beer' ? 0 : 2;
+    const fx = this.host.fx;
+    await new Promise<void>((resolve) => {
+      const dur = 650, t0 = performance.now();
+      const step = () => {
+        if (s.destroyed) { resolve(); return; }
+        state.t = Math.min(1, (performance.now() - t0) / dur);
+        const t = state.t, u = 1 - t;
+        s.x = u * u * a.x + 2 * u * t * ctrl.x + t * t * b.x;
+        s.y = u * u * a.y + 2 * u * t * ctrl.y + t * t * b.y;
+        s.rotation = spin * t;
+        if (key === 'bomb' && Math.random() < 0.6) {
+          fx.particles.burst({ kind: 'glow', x: s.x + 18, y: s.y - 24, count: 1, speed: [20, 60], life: [200, 350], scale: [0.15, 0.25], colors: [0xffd34d, 0xff8a2a], blend: 'add' });
+        }
+        if (t < 1) requestAnimationFrame(step); else resolve();
+      };
+      step();
+    });
+    if (s.destroyed) return;
+    try {
+      await this.propEffect(s, key, b, to);
+    } catch {
+      // 动画过程中离开牌桌，对象已被销毁
+    }
+    if (!s.destroyed) s.destroy();
+  }
+
+  private async propEffect(s: Sprite, key: string, b: Point, to: number) {
+    const fx = this.host.fx;
+    switch (key) {
+      case 'flower':
+        sound.play('flower');
+        fx.particles.burst({ kind: 'petal', x: b.x, y: b.y, count: 22, speed: [80, 260], life: [900, 1500], scale: [0.6, 1.1], gravity: 260, spin: 8 });
+        await tween(s, { scale: s.scale.x * 1.4 }, 220, { ease: ease.outBack });
+        await tween(s, { alpha: 0 }, 500, { delay: 500 });
+        break;
+      case 'heart':
+        sound.play('heart');
+        for (let i = 0; i < 3; i++) {
+          void tween(s, { scale: s.scale.x * 1.25 }, 120).then(() => tween(s, { scale: s.scale.x / 1.25 }, 120));
+          await wait(260);
+        }
+        fx.particles.burst({ kind: 'heart', x: b.x, y: b.y, count: 10, speed: [40, 120], angle: [Math.PI * 1.15, Math.PI * 1.85], life: [900, 1300], scale: [0.4, 0.7], gravity: -60 });
+        await tween(s, { alpha: 0 }, 300);
+        break;
+      case 'beer': {
+        // 两只杯子碰杯
+        const s2 = new Sprite(propTexture('beer'));
+        s2.anchor.set(0.5);
+        s2.width = s2.height = 64;
+        s2.scale.x *= -1;
+        s2.position.set(b.x + 70, b.y);
+        s2.alpha = 0;
+        this.addChild(s2);
+        s.x = b.x - 70;
+        await Promise.all([tween(s, { x: b.x - 26, rotation: 0.3 }, 200), tween(s2, { x: b.x + 26, alpha: 1, rotation: -0.3 }, 200)]);
+        sound.play('beer');
+        fx.particles.burst({ kind: 'foam', x: b.x, y: b.y - 30, count: 14, speed: [60, 180], angle: [Math.PI * 1.1, Math.PI * 1.9], life: [500, 800], scale: [0.4, 0.8], gravity: 400 });
+        await wait(600);
+        await Promise.all([tween(s, { alpha: 0 }, 300), tween(s2, { alpha: 0 }, 300)]);
+        s2.destroy();
+        break;
+      }
+      case 'egg':
+        sound.play('egg');
+        s.texture = propTexture('splat');
+        s.rotation = Math.random() * 0.6 - 0.3;
+        s.scale.set(s.scale.x * 1.5);
+        this.host.shakeHud(to);
+        await tween(s, { y: s.y + 14 }, 1200, { ease: ease.linear });
+        await tween(s, { alpha: 0 }, 400);
+        break;
+      case 'bomb':
+        sound.play('boom');
+        s.visible = false;
+        fx.particles.burst({ kind: 'glow', x: b.x, y: b.y, count: 22, speed: [100, 300], life: [300, 600], scale: [0.3, 0.6], colors: [0xffe066, 0xff8a2a, 0xff4a1a], blend: 'add' });
+        fx.particles.burst({ kind: 'smoke', x: b.x, y: b.y, count: 8, speed: [30, 90], life: [800, 1200], scale: [0.6, 1], grow: 0.8 });
+        this.host.shakeHud(to);
+        await wait(300);
+        break;
+    }
+  }
+}

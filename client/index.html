@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0b3d23" />
+  <title>掼蛋</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="game"></div>
+  <div id="lobby">
+    <div class="lobby-card">
+      <div class="logo"><span>掼</span><span>蛋</span></div>
+      <div class="sub">经典四人掼蛋 · 两副牌 · 逢人配</div>
+      <label class="field">
+        <span>昵称</span>
+        <input id="nick" maxlength="8" placeholder="输入你的昵称" autocomplete="off" />
+      </label>
+      <div id="join-invite" class="hidden">
+        <button id="btn-invite" class="btn primary">加入好友房间 <b id="invite-code"></b></button>
+      </div>
+      <div class="row">
+        <button id="btn-create" class="btn primary">创建房间</button>
+        <button id="btn-solo" class="btn">单机练习</button>
+      </div>
+      <div class="join-row">
+        <input id="room-code" inputmode="numeric" maxlength="6" placeholder="输入 6 位房间号" autocomplete="off" />
+        <button id="btn-join" class="btn small">加入</button>
+      </div>
+      <div class="tip">建议横屏游玩，体验更佳</div>
+    </div>
+  </div>
+  <div id="room" class="hidden"></div>
+  <div id="net-status" class="hidden">网络连接中…</div>
+  <div id="toast" class="hidden"></div>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
