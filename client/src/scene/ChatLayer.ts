@@ -23,7 +23,7 @@ export class ChatLayer extends Container {
   private panel = new Container();
   private picker = new Container();
   private bubbles = new Map<number, Container>();
-  private tab: 'phrase' | 'emoji' = 'phrase';
+  private tab: 'phrase' | 'dialect' | 'emoji' = 'phrase';
   private DW = 1280;
   private DH = 750;
 
@@ -74,21 +74,23 @@ export class ChatLayer extends Container {
     const p = this.panel;
     p.removeChildren().forEach((c) => c.destroy({ children: true }));
     p.visible = true;
-    const W = 420, H = 420;
-    p.position.set(this.DW - W - 150, this.DH - H - 110);
+    // 普通话快捷语有 12 条，面板加高加宽；放不下时贴着屏幕顶部
+    const W = 500, H = 580;
+    p.position.set(this.DW - W - 150, Math.max(12, this.DH - H - 100));
     const bg = new Graphics()
       .roundRect(0, 0, W, H, 18).fill({ color: 0x1a120a, alpha: 0.88 }).stroke({ color: 0xf5c34a, alpha: 0.7, width: 2 });
     bg.eventMode = 'static';
     p.addChild(bg);
     // 页签
-    (['phrase', 'emoji'] as const).forEach((t, i) => {
+    const TABS = [['phrase', '快捷语'], ['dialect', '方言'], ['emoji', '表情']] as const;
+    TABS.forEach(([t, label], i) => {
       const active = this.tab === t;
       const tb = new Container();
-      const g = new Graphics().roundRect(0, 0, 130, 40, 20).fill({ color: active ? 0xf0a020 : 0x3a2a18 });
-      const tx = new Text({ text: t === 'phrase' ? '快捷语' : '表情', style: { fontFamily: FONT_UI, fontSize: 20, fontWeight: '900', fill: active ? 0xffffff : 0xd8c8a8 } });
-      tx.anchor.set(0.5); tx.position.set(65, 20);
+      const g = new Graphics().roundRect(0, 0, 120, 40, 20).fill({ color: active ? 0xf0a020 : 0x3a2a18 });
+      const tx = new Text({ text: label, style: { fontFamily: FONT_UI, fontSize: 20, fontWeight: '900', fill: active ? 0xffffff : 0xd8c8a8 } });
+      tx.anchor.set(0.5); tx.position.set(60, 20);
       tb.addChild(g, tx);
-      tb.position.set(16 + i * 140, 14);
+      tb.position.set(16 + i * 130, 14);
       tb.eventMode = 'static'; tb.cursor = 'pointer';
       tb.on('pointertap', (e) => { e.stopPropagation(); this.tab = t; this.openPanel(); });
       p.addChild(tb);
@@ -99,16 +101,25 @@ export class ChatLayer extends Container {
     close.on('pointertap', (e) => { e.stopPropagation(); this.closeAll(); });
     p.addChild(close);
 
-    if (this.tab === 'phrase') {
-      PHRASES.forEach((text, i) => {
+    if (this.tab !== 'emoji') {
+      // 编号是 PHRASES 的下标；普通话一页，东北话和粤语一页
+      const list = PHRASES.map((ph, id) => ({ ...ph, id })).filter((ph) => (this.tab === 'phrase' ? ph.lang === 'zh' : ph.lang !== 'zh'));
+      list.forEach((ph, i) => {
         const row = new Container();
-        const g = new Graphics().roundRect(0, 0, W - 32, 40, 10).fill({ color: 0xffffff, alpha: i % 2 ? 0.04 : 0.09 });
-        const tx = new Text({ text, style: { fontFamily: FONT_UI, fontSize: 20, fill: 0xfff4dc } });
+        const g = new Graphics().roundRect(0, 0, W - 32, 38, 10).fill({ color: 0xffffff, alpha: i % 2 ? 0.04 : 0.09 });
+        const tag = ph.lang === 'ne' ? '东北话' : ph.lang === 'yue' ? '粤语' : '';
+        const tx = new Text({ text: ph.text, style: { fontFamily: FONT_UI, fontSize: 19, fill: 0xfff4dc } });
         tx.position.set(14, 8);
         row.addChild(g, tx);
-        row.position.set(16, 66 + i * 43);
+        if (tag) {
+          const tt = new Text({ text: tag, style: { fontFamily: FONT_UI, fontSize: 14, fontWeight: '700', fill: 0xf0a020 } });
+          tt.anchor.set(1, 0.5);
+          tt.position.set(W - 46, 19);
+          row.addChild(tt);
+        }
+        row.position.set(16, 66 + i * 42);
         row.eventMode = 'static'; row.cursor = 'pointer';
-        row.on('pointertap', (e) => { e.stopPropagation(); this.send('phrase', i); });
+        row.on('pointertap', (e) => { e.stopPropagation(); this.send('phrase', ph.id); });
         p.addChild(row);
       });
     } else {
@@ -119,7 +130,7 @@ export class ChatLayer extends Container {
         s.width = s.height = 72;
         s.position.set(8, 8);
         cell.addChild(g, s);
-        cell.position.set(18 + (i % 4) * 98, 68 + Math.floor(i / 4) * 112);
+        cell.position.set(30 + (i % 4) * 112, 72 + Math.floor(i / 4) * 116);
         cell.eventMode = 'static'; cell.cursor = 'pointer';
         cell.on('pointertap', (e) => { e.stopPropagation(); this.send('emoji', i); });
         p.addChild(cell);
@@ -168,8 +179,8 @@ export class ChatLayer extends Container {
   onChat(m: ChatMsg) {
     const voice = this.host.client.players[m.seat]?.voice ?? 'male';
     if (m.kind === 'phrase') {
-      sound.say(voice, `phrase_${m.id}`);
-      this.bubble(m.seat, PHRASES[m.id]);
+      sound.say(voice, PHRASES[m.id].key, 1);
+      this.bubble(m.seat, PHRASES[m.id].text);
     } else if (m.kind === 'emoji') {
       sound.play('chat');
       this.bubble(m.seat, null, m.id);

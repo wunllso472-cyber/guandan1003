@@ -20,7 +20,8 @@ export interface RoundResult {
 }
 
 export type GameEvent =
-  | { type: 'roundStart'; level: number; levelTeam: number; hands: number[][]; levels: [number, number] }
+  /** roundNo：本盘第几局（1 表示新开一盘） */
+  | { type: 'roundStart'; level: number; levelTeam: number; hands: number[][]; levels: [number, number]; roundNo: number }
   | { type: 'antiTribute'; seats: number[] }
   | { type: 'tribute'; list: TributeInfo[] }
   | { type: 'returnTribute'; from: number; to: number; card: number }
@@ -87,7 +88,7 @@ export class GuandanGame {
     this.lastPlay = null;
     this.passCount = 0;
     this.pendingReturns = [];
-    this.emit({ type: 'roundStart', level: this.level, levelTeam: this.levelTeam, hands: this.hands.map((h) => [...h]), levels: [...this.levels] });
+    this.emit({ type: 'roundStart', level: this.level, levelTeam: this.levelTeam, hands: this.hands.map((h) => [...h]), levels: [...this.levels], roundNo: this.roundNo });
 
     const order = this.prevOrder;
     if (!order) {

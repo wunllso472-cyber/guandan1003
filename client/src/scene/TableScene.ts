@@ -41,6 +41,8 @@ export class TableScene extends Container {
   private lastTick = -1;
   private myDeadline = 0;
   private warned = new Set<number>();
+  /** 本轮是否已经有人出过牌（之后的出牌就是“压牌”） */
+  private trickOpen = false;
   private overlay = new Container();
   private toastBox = new Container();
   private toastText: Text;
@@ -230,12 +232,16 @@ export class TableScene extends Container {
         this.actionBar.visible = false;
         this.returnBar.visible = false;
         this.warned.clear();
+        this.trickOpen = false;
         this.fx.bigText(`本局打 ${rankName(e.level)}`, [0xfff3b0, 0xf0a020]);
+        // 每盘第一局播开局语，之后播“本局打几”
+        sound.narrate(e.roundNo === 1 ? 'game_open' : `round_${e.level}`);
         break;
       }
       case 'antiTribute':
         this.fx.bigText('抗贡！', [0xffd0a0, 0xff5a2a]);
         sound.play('shine');
+        sound.narrate('anti_tribute');
         break;
       case 'tribute':
         for (const t of e.list) {
@@ -248,6 +254,8 @@ export class TableScene extends Container {
         });
         this.toast(e.list.length > 1 ? '双下，两人进贡' : '进贡');
         sound.play('tribute');
+        // 开局语较长，进贡播报稍后再说
+        setTimeout(() => sound.narrate(e.list.length > 1 ? 'tribute_double' : 'tribute'), 1200);
         this.refreshReturnBar();
         break;
       case 'returnTribute':
@@ -301,18 +309,25 @@ export class TableScene extends Container {
         this.huds[e.seat].setDeadline(0);
         this.played[e.seat].showText('不出');
         sound.play('pass');
-        sound.say(this.client.players[e.seat].voice, `pass_${1 + Math.floor(Math.random() * 3)}`);
+        sound.sayPass(this.client.players[e.seat].voice);
         if (e.seat === me) { this.myTurn = false; this.refreshButtons(); }
         break;
       case 'trickEnd': {
         for (const pv of this.played) pv.stale = true;
+        this.trickOpen = false;
         setTimeout(() => { if (!this.destroyed) this.clearStale(); }, 900);
-        if (e.jiefeng) this.toast(`${this.client.players[e.leader].name} 接风`);
+        if (e.jiefeng) {
+          this.toast(`${this.client.players[e.leader].name} 接风`);
+          sound.narrate('jiefeng');
+        }
         break;
       }
       case 'finish': {
         this.huds[e.seat].setPlace(e.place);
-        if (e.place === 1) sound.play('shine');
+        if (e.place === 1) {
+          sound.play('shine');
+          setTimeout(() => sound.narrate('first'), 900);
+        }
         this.huds[e.seat].setCount(0);
         const partner = partnerOf(me);
         if (e.seat === me && g.isActive(partner)) this.startWatching(partner);
@@ -327,6 +342,10 @@ export class TableScene extends Container {
           if (this.destroyed) return;
           const win = e.result.winTeam === teamOf(me);
           sound.play(win ? 'win' : 'lose');
+          const r = e.result;
+          if (r.gameOver) sound.narrate('pass_a');
+          else if (r.note?.includes('未过')) sound.narrate('a_fail');
+          else if (r.up === 3) sound.narrate('double_win');
           if (win) this.fx.confetti();
           this.showRoundEnd(e.result);
         });
@@ -410,7 +429,8 @@ export class TableScene extends Container {
   private playFx(seat: number, combo: Combo, left: number, level: number) {
     const voice = this.client.players[seat].voice;
     sound.play('play');
-    sound.say(voice, sound.comboKey(combo, level));
+    sound.sayPlay(voice, combo, level, this.trickOpen);
+    this.trickOpen = true;
     const pv = this.played[seat];
     const c = pv.center(combo.cards.length);
     const at = this.toLocal(pv.toGlobal(new Point(c.x, c.y)));
@@ -436,7 +456,7 @@ export class TableScene extends Container {
         break;
     }
     if (left > 0 && left <= 2) {
-      setTimeout(() => { sound.play('warn'); sound.say(voice, `warn_${left}`); }, 900);
+      setTimeout(() => { sound.play('warn'); sound.sayWarn(voice, left); }, 900);
     }
     if (left > 0 && left <= 10 && !this.warned.has(seat)) {
       this.warned.add(seat);
@@ -597,16 +617,17 @@ export class TableScene extends Container {
   }
 
   private showSettings() {
-    const box = this.panel(480, 520, '设置');
+    const box = this.panel(480, 580, '设置');
     const rows: [string, () => string, () => void][] = [
       ['音效', () => (sound.settings.sfx ? '开' : '关'), () => sound.save({ sfx: !sound.settings.sfx })],
       ['背景音乐', () => (sound.settings.music ? '开' : '关'), () => sound.save({ music: !sound.settings.music })],
       ['出牌语音', () => (sound.settings.voice ? '开' : '关'), () => sound.save({ voice: !sound.settings.voice })],
       ['我的声音', () => (sound.settings.myVoice === 'male' ? '男声' : '女声'), () => sound.save({ myVoice: sound.settings.myVoice === 'male' ? 'female' : 'male' })],
+      ['方言彩蛋', () => (sound.settings.dialect ? '开' : '关'), () => sound.save({ dialect: !sound.settings.dialect })],
       ['智能选牌', () => (prefs.autoPick ? '开' : '关'), () => savePrefs({ autoPick: !prefs.autoPick })],
     ];
     rows.forEach(([label, value, toggle], i) => {
-      const y = -150 + i * 64;
+      const y = -180 + i * 62;
       this.addLabel(box, label, -170, y, 26, 0x5a2e10, 0);
       const btn = new Button(value(), 'green', 130, 50, () => {
         toggle();
@@ -616,9 +637,9 @@ export class TableScene extends Container {
       btn.position.set(140, y);
       box.addChild(btn);
     });
-    this.addLabel(box, '“我的声音”从下一盘开始生效', 0, 150, 18, 0x9a6b2a);
+    this.addLabel(box, '“我的声音”从下一盘开始生效', 0, 188, 18, 0x9a6b2a);
     const ok = new Button('完成', 'orange', 160, 54, () => this.clearOverlay());
-    ok.y = 205;
+    ok.y = 238;
     box.addChild(ok);
   }
 

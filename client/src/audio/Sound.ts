@@ -2,14 +2,38 @@
 // 手机浏览器要求在用户手势里解锁 AudioContext，见 unlock()。
 import { card } from '@shared/cards';
 import type { Combo } from '@shared/combo';
+import voiceScript from '@shared/voice-script.json';
 
 export type VoiceKind = 'male' | 'female';
+type Speaker = VoiceKind | 'narrator';
+type Lang = 'zh' | 'ne' | 'yue';
 
-export interface AudioSettings { sfx: boolean; music: boolean; voice: boolean; myVoice: VoiceKind }
+export interface AudioSettings {
+  sfx: boolean; music: boolean; voice: boolean; myVoice: VoiceKind;
+  /** 方言彩蛋：不出、压牌、炸弹惊呼偶尔说东北话或粤语 */
+  dialect: boolean;
+}
+
+/** 方言出现的概率（各自），压牌代替牌型播报的概率，炸弹后接惊呼的概率 */
+const DIALECT_RATE = 0.1;
+const BEAT_RATE = 0.3;
+const BOOM_RATE = 0.5;
+
+interface ScriptLine { category: string; key: string; lang: Lang; speaker: 'player' | 'narrator'; text: string }
+const LINES = (voiceScript as { lines: ScriptLine[] }).lines;
+const poolCache = new Map<string, string[]>();
+/** 某类台词在某种语言下的全部 key */
+function pool(category: string, lang: Lang): string[] {
+  const id = category + '|' + lang;
+  let p = poolCache.get(id);
+  if (!p) { p = LINES.filter((l) => l.category === category && l.lang === lang).map((l) => l.key); poolCache.set(id, p); }
+  return p;
+}
+const pickOne = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 
 const KEY = 'gd_audio';
 function loadSettings(): AudioSettings {
-  const def: AudioSettings = { sfx: true, music: true, voice: true, myVoice: 'male' };
+  const def: AudioSettings = { sfx: true, music: true, voice: true, myVoice: 'male', dialect: true };
   try { return { ...def, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return def; }
 }
 
@@ -26,7 +50,8 @@ class SoundEngine {
   private voiceBus!: GainNode;
   private noise!: AudioBuffer;
   private voices = new Map<string, Promise<AudioBuffer | null>>();
-  private voiceQueue: { at: number; src: AudioBufferSourceNode | null }[] = [];
+  /** 正在播放的语音：优先级高的不会被低的打断 */
+  private speaking: { src: AudioBufferSourceNode; prio: number; until: number } | null = null;
   private bgm: Bgm | null = null;
 
   /** 在用户点击时调用一次 */
@@ -91,8 +116,8 @@ class SoundEngine {
   }
 
   // ---------- 语音 ----------
-  private loadVoice(kind: VoiceKind, key: string): Promise<AudioBuffer | null> {
-    const id = `${kind}/${key}`;
+  private loadVoice(speaker: Speaker, key: string): Promise<AudioBuffer | null> {
+    const id = `${speaker}/${key}`;
     let p = this.voices.get(id);
     if (!p) {
       const ctx = this.ctx!;
@@ -105,31 +130,94 @@ class SoundEngine {
     return p;
   }
 
-  /** 预加载常用语音，避免第一次播放延迟 */
+  /** 预加载常用语音（普通话的出牌、不出、压牌、报牌，以及系统播报），方言台词用到时再加载 */
   preloadVoices(kinds: VoiceKind[]) {
     if (!this.ctx) return;
-    const keys: string[] = [];
-    for (const r of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]) keys.push(`single_${r}`, `pair_${r}`, `triple_${r}`);
-    keys.push('single_16', 'single_17', 'pair_16', 'pair_17', 'fullhouse', 'straight', 'tube', 'plate', 'bomb',
-      'straightflush', 'jokerbomb', 'pass_1', 'pass_2', 'pass_3', 'warn_1', 'warn_2');
-    for (const k of kinds) for (const key of keys) void this.loadVoice(k, key);
+    const common = new Set(['出牌·单张', '出牌·对子', '出牌·三张', '出牌·牌型', '压牌', '不出', '炸弹惊呼', '报牌']);
+    for (const l of LINES) {
+      if (l.lang !== 'zh') continue;
+      if (l.speaker === 'narrator') void this.loadVoice('narrator', l.key);
+      else if (common.has(l.category)) for (const k of kinds) void this.loadVoice(k, l.key);
+    }
   }
 
-  /** 播放一句语音；同一时间只播一句，后来的打断前面的 */
-  async say(kind: VoiceKind, key: string, delay = 0) {
+  /**
+   * 播放一句语音。prio：1 普通（出牌、不出、快捷语），2 重要（炸弹、报牌、系统播报）。
+   * 正在播放更重要的语音时，普通语音直接跳过；否则打断当前语音。说话时背景音乐自动调低。
+   */
+  async say(speaker: Speaker, key: string, prio = 1, delay = 0) {
     if (!this.ctx || !this.settings.voice) return;
-    const buf = await this.loadVoice(kind, key);
+    const buf = await this.loadVoice(speaker, key);
     if (!buf || !this.ctx) return;
     const ctx = this.ctx;
-    for (const v of this.voiceQueue) { try { v.src?.stop(); } catch { /* 已结束 */ } }
+    const start = ctx.currentTime + delay;
+    const cur = this.speaking;
+    if (cur && cur.until > start) {
+      if (cur.prio > prio) return;
+      try { cur.src.stop(); } catch { /* 已结束 */ }
+    }
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.voiceBus);
-    src.start(ctx.currentTime + delay);
-    this.voiceQueue = [{ at: ctx.currentTime, src }];
+    src.start(start);
+    const until = start + buf.duration;
+    this.speaking = { src, prio, until };
+    this.duckMusic(start, until);
   }
 
-  /** 出牌播报：返回语音 key */
+  /** 说话期间把背景音乐压低到 35% */
+  private duckMusic(from: number, to: number) {
+    if (!this.settings.music) return;
+    const g = this.musicBus.gain;
+    const base = 0.32;
+    g.cancelScheduledValues(from);
+    g.setTargetAtTime(base * 0.35, from, 0.05);
+    g.setTargetAtTime(base, to + 0.15, 0.25);
+  }
+
+  /** 随机选语言：开启方言彩蛋时东北话、粤语各约 10% */
+  private pickLang(): Lang {
+    if (!this.settings.dialect) return 'zh';
+    const r = Math.random();
+    return r < DIALECT_RATE ? 'ne' : r < DIALECT_RATE * 2 ? 'yue' : 'zh';
+  }
+
+  /** 从某类台词里随机挑一句（按语言概率，没有该语言版本时用普通话） */
+  private pickLine(category: string): string | null {
+    const keys = pool(category, this.pickLang());
+    const list = keys.length ? keys : pool(category, 'zh');
+    return list.length ? pickOne(list) : null;
+  }
+
+  /** 出牌播报：beat 表示这手牌压过了上家（不是首出） */
+  sayPlay(voice: VoiceKind, c: Combo, level: number, beat: boolean) {
+    const bomb = c.type === 'bomb' || c.type === 'straightflush' || c.type === 'jokerbomb';
+    if (beat && !bomb && Math.random() < BEAT_RATE) {
+      const k = this.pickLine('压牌');
+      if (k) { void this.say(voice, k, 1); return; }
+    }
+    void this.say(voice, this.comboKey(c, level), bomb ? 2 : 1);
+    if (bomb && Math.random() < BOOM_RATE) {
+      const k = this.pickLine('炸弹惊呼');
+      if (k) setTimeout(() => void this.say(voice, k, 2), 750);
+    }
+  }
+
+  sayPass(voice: VoiceKind) {
+    const k = this.pickLine('不出');
+    if (k) void this.say(voice, k, 1);
+  }
+
+  sayWarn(voice: VoiceKind, left: number) {
+    if (left === 1 || left === 2) void this.say(voice, `warn_${left}`, 2);
+  }
+
+  /** 系统播报 */
+  narrate(key: string) {
+    void this.say('narrator', key, 2);
+  }
+
+  /** 出牌播报对应的语音 key */
   comboKey(c: Combo, level: number): string {
     const rank = (id: number) => card(id).rank;
     const r = c.cards.length ? rank(c.cards[0]) : level;
@@ -140,6 +228,7 @@ class SoundEngine {
       case 'single': return `single_${rr}`;
       case 'pair': return `pair_${rr}`;
       case 'triple': return `triple_${rr}`;
+      case 'bomb': return c.cards.length >= 6 ? 'bomb_big' : 'bomb';
       default: return c.type;
     }
   }

@@ -1,5 +1,8 @@
 node_modules
 dist
 voice-wav
+voice-raw
 *.tmp.ts
 .DS_Store
+.env
+.env.*

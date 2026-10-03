@@ -46,13 +46,15 @@ Netlify 只托管静态网页，联机用的 WebSocket 服务部署在 Render。
 ## 音频
 
 - 音效和背景音乐：Web Audio 实时合成（`client/src/audio/Sound.ts`），没有外部素材。
-- 出牌语音：`client/public/voice/{male,female}/*.mp3`，台词在 `scripts/voice-lines.json`。
-  当前文件用 Windows 自带的中文语音（康康/慧慧）生成，作为开发占位。正式上线前建议换成有商用授权的录音或云端 TTS，文件名保持不变即可直接替换。
-  重新生成：
+- 语音：豆包语音（seed-audio-1.0）生成，台词总表在 `shared/voice-script.json`
+  （普通话为主，少量东北话、粤语；玩家音色男女各一份，系统播报单独一个音色），
+  文件在 `client/public/voice/{male,female,narrator}/<key>.mp3`。
+  密钥放在本地 `.env.local`（`DOUBAO_API_KEY=...`，已被 .gitignore 忽略，不要提交）。
 
-  ```powershell
-  powershell -File scripts/gen-voice.ps1 -OutDir voice-wav
-  node scripts/encode-voice.mjs voice-wav
+  ```bash
+  node scripts/gen-voice-doubao.mjs                       # 生成全部（已生成的跳过）
+  node scripts/gen-voice-doubao.mjs --only pair_3 --tries 3   # 重做指定台词，生成 3 版挑最干脆的
+  node scripts/gen-voice-doubao.mjs --check               # 列出时长偏长（可能拖音）的短台词
   ```
 
 ## 目录

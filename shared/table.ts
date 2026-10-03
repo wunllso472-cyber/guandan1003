@@ -208,7 +208,9 @@ export class Table {
       const others = [0, 1, 2, 3].filter((s) => s !== seat && this.isAI[s] && g.isActive(s));
       if (others.length && Math.random() < 0.35) {
         const who = others[Math.floor(Math.random() * others.length)];
-        this.after(this.dealDelay() + 18000, () => this.chat(who, 'phrase', 0));
+        // 催促：普通话“快点吧”，偶尔用东北话、粤语版本（编号见 chat.ts 的 PHRASES）
+        const nudge = Math.random() < 0.8 ? 0 : Math.random() < 0.5 ? 12 : 16;
+        this.after(this.dealDelay() + 18000, () => this.chat(who, 'phrase', nudge));
       }
     }
   }
