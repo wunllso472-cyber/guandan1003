@@ -5,7 +5,7 @@ import { extname, join, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Room } from './room';
-import { getAdvice } from './jev';
+import { getAdvice, warmUp } from './jev';
 import type { ClientMsg, ServerMsg } from '../shared/protocol';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -167,6 +167,11 @@ setInterval(() => {
     const online = room.seats.some((s) => s?.kind === 'human' && !s.left && s.ws);
     if (!online && now - room.lastActive > ROOM_IDLE_MS) room.dispose();
   }
+}, 60_000);
+
+// 有对局进行时保持到 Jev 的连接
+setInterval(() => {
+  if ([...rooms.values()].some((r) => r.playing)) warmUp();
 }, 60_000);
 
 http.listen(PORT, () => console.log(`掼蛋服务已启动：http://localhost:${PORT}`));

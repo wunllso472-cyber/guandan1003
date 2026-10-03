@@ -19,6 +19,8 @@ import { autoPickFor } from '../game/autopick';
 const PAD = 28; // 刘海屏安全边距
 /** 等待 Jev 建议的最长时间 */
 const JEV_TIMEOUT_MS = 2000;
+/** Jev 置信度低于此值时不采用它的排序 */
+const JEV_MIN_CONFIDENCE = 0.35;
 
 export class TableScene extends Container {
   private bg: Sprite;
@@ -551,7 +553,8 @@ export class TableScene extends Container {
         if (this.destroyed) return;
         this.hintBtn.text = '提示';
         if (serial !== this.turnSerial || !this.myTurn) return; // 已经不是这一手了
-        if (res?.ranking.length) {
+        // Jev 拿不准（置信度低）时沿用本地顾问的排序
+        if (res?.ranking.length && (res.confidence ?? 1) >= JEV_MIN_CONFIDENCE) {
           const pos = new Map(res.ranking.map((id, i) => [id, i]));
           opts = [...opts].sort((x, y) => (pos.get(x.id) ?? 999) - (pos.get(y.id) ?? 999));
           this.hintByJev = true;
