@@ -11,26 +11,34 @@ import type { PlayerInfo, ServerMsg } from '@shared/protocol';
 const BASE_W = 1280;
 const BASE_H = 750;
 
+// 尽早唤醒联机服务（Render 免费版会休眠）
+wakeServer();
+
+// world 承载横屏的设计坐标系；竖屏时整体旋转 90°，保证始终横屏显示
+const world = new Container();
 const app = new Application();
-await app.init({
+let ready = false;
+// 不阻塞大厅：按钮立即可点，需要牌桌的操作等初始化完成后再执行
+const appReady = app.init({
   resizeTo: window,
   antialias: true,
   autoDensity: true,
   resolution: Math.min(window.devicePixelRatio || 1, 2),
   background: '#0b3d23',
+}).then(() => {
+  document.getElementById('game')!.appendChild(app.canvas);
+  app.stage.addChild(world);
+  app.stage.eventMode = 'static';
+  app.stage.hitArea = app.screen;
+  ready = true;
+  relayout();
 });
-document.getElementById('game')!.appendChild(app.canvas);
-
-// world 承载横屏的设计坐标系；竖屏时整体旋转 90°，保证始终横屏显示
-const world = new Container();
-app.stage.addChild(world);
-app.stage.eventMode = 'static';
-app.stage.hitArea = app.screen;
 
 let scene: TableScene | null = null;
 let game: GameClient | null = null;
 
 function relayout() {
+  if (!ready) return;
   const W = window.innerWidth, H = window.innerHeight;
   app.renderer.resize(W, H);
   const portrait = H > W;
@@ -98,8 +106,7 @@ function showScene(client: GameClient, onExit: () => void) {
   scene = new TableScene(client, onExit);
   scene.bindStage(app.stage);
   world.addChild(scene);
-  wakeServer();
-relayout();
+  relayout();
   if (import.meta.env.DEV) (window as any).__gd = { game, scene, app, conn };
 }
 
@@ -119,6 +126,10 @@ function closeScene() {
 function startSolo() {
   void enterLandscape();
   lobby.classList.add('hidden');
+  void appReady.then(startSoloNow);
+}
+
+function startSoloNow() {
   const local = new LocalGame(nickname(), sound.settings.myVoice);
   if (import.meta.env.DEV && location.search.includes('fast')) local.speed = 0.05;
   showScene(local, () => { closeScene(); lobby.classList.remove('hidden'); });
@@ -188,6 +199,10 @@ function startNetGame(seat: number, players: PlayerInfo[]) {
 /** 创建或加入房间（code 为 'new' 表示创建） */
 function goRoom(code: string) {
   void enterLandscape();
+  void appReady.then(() => goRoomNow(code));
+}
+
+function goRoomNow(code: string) {
   const c = ensureConn();
   // 服务器休眠唤醒需要时间，连接慢时给出提示
   setTimeout(() => {
@@ -234,10 +249,8 @@ if (urlRoom && /^\d{6}$/.test(urlRoom)) {
   $('invite-code').textContent = urlRoom;
   $('join-invite').classList.remove('hidden');
   codeInput.value = urlRoom;
-  if (store.get('gd_nick')) { pendingJoin = urlRoom; ensureConn(); }
+  if (store.get('gd_nick')) { pendingJoin = urlRoom; void appReady.then(ensureConn); }
 } else if (store.get('gd_room')) {
   // 上次在房间里：连上后服务器会自动把我们带回去
-  ensureConn();
+  void appReady.then(ensureConn);
 }
-
-relayout();
