@@ -41,7 +41,9 @@ const http = createServer(async (req, res) => {
     });
     res.end(body);
   } catch {
-    res.writeHead(404).end('not found');
+    // 单独部署服务端（网页在 Netlify）时没有静态文件
+    if (url.pathname === '/') res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end('掼蛋联机服务运行中');
+    else res.writeHead(404).end('not found');
   }
 });
 

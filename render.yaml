@@ -1,0 +1,13 @@
+# Render 部署配置（Blueprint）：联机 WebSocket 服务
+services:
+  - type: web
+    name: guandan-server
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

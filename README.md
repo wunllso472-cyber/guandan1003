@@ -29,14 +29,19 @@ location / {
 }
 ```
 
-### 前端和服务端分开部署（例如前端放 Netlify）
+### 线上部署：Netlify（前端）+ Render（联机服务）
 
-Netlify 只托管静态网页，不能运行 WebSocket 服务：
+Netlify 只托管静态网页，联机用的 WebSocket 服务部署在 Render。
 
-1. 把服务端（`npm run build` 后的 `dist/server.mjs`）部署到支持 WebSocket 的平台或服务器。
-2. 在 Netlify 的环境变量里设置 `VITE_WS_URL=wss://<服务端域名>/ws`，再构建前端（配置见 `netlify.toml`）。
+1. **Render**：New → Blueprint，选择本仓库，按 `render.yaml` 创建 `guandan-server`（免费版，新加坡）。
+   部署完成后得到地址 `https://<名称>.onrender.com`，浏览器打开应显示“掼蛋联机服务运行中”。
+2. **Netlify**：Add new site → Import from GitHub，选择本仓库（构建配置见 `netlify.toml`）。
+   在 Site configuration → Environment variables 添加 `VITE_WS_URL = wss://<名称>.onrender.com/ws`，然后重新部署。
 
-不设置 `VITE_WS_URL` 时，前端连接同域名下的 `/ws`。
+说明：
+- Render 免费版闲置约 15 分钟后休眠，下次访问需要几十秒唤醒；网页打开时会自动发请求提前唤醒。
+- 房间保存在服务端内存里，服务重启或休眠后进行中的房间会丢失。
+- 不设置 `VITE_WS_URL` 时，前端连接同域名下的 `/ws`（单机部署时用）。
 
 ## 音频
 

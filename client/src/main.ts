@@ -2,7 +2,7 @@ import { Application, Container } from 'pixi.js';
 import { TableScene } from './scene/TableScene';
 import { LocalGame } from './game/LocalGame';
 import type { GameClient } from './game/types';
-import { Connection } from './net/Connection';
+import { Connection, wakeServer } from './net/Connection';
 import { NetGame } from './net/NetGame';
 import { RoomUI } from './net/RoomUI';
 import { sound } from './audio/Sound';
@@ -98,7 +98,8 @@ function showScene(client: GameClient, onExit: () => void) {
   scene = new TableScene(client, onExit);
   scene.bindStage(app.stage);
   world.addChild(scene);
-  relayout();
+  wakeServer();
+relayout();
   if (import.meta.env.DEV) (window as any).__gd = { game, scene, app, conn };
 }
 
@@ -188,6 +189,10 @@ function startNetGame(seat: number, players: PlayerInfo[]) {
 function goRoom(code: string) {
   void enterLandscape();
   const c = ensureConn();
+  // 服务器休眠唤醒需要时间，连接慢时给出提示
+  setTimeout(() => {
+    if (c.status !== 'open' && !roomCode) toast('正在连接服务器，首次连接可能需要约 1 分钟…');
+  }, 1500);
   if (c.status === 'open') {
     c.send({ t: 'hello', token: c.token, name: c.name, voice: c.voice });
     c.send(code === 'new' ? { t: 'create' } : { t: 'join', code });

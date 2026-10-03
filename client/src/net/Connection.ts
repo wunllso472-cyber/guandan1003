@@ -21,6 +21,14 @@ function wsUrl(): string {
   return `${proto}://${location.host}/ws`;
 }
 
+/** 唤醒服务端：Render 免费版闲置后会休眠，页面打开时先发个请求让它提前启动 */
+export function wakeServer() {
+  const env = import.meta.env.VITE_WS_URL as string | undefined;
+  if (!env) return;
+  const http = env.replace(/^ws/, 'http').replace(/\/ws\/?$/, '/healthz');
+  fetch(http, { mode: 'no-cors', cache: 'no-store' }).catch(() => { /* 唤醒失败不影响后续重连 */ });
+}
+
 export type ConnStatus = 'connecting' | 'open' | 'closed';
 
 export class Connection {
