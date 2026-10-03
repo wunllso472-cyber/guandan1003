@@ -5,6 +5,8 @@ export default defineConfig({
   root: 'client',
   resolve: { alias: { '@shared': fileURLToPath(new URL('./shared', import.meta.url)) } },
   build: { outDir: '../dist/client', emptyOutDir: true },
+  // 蒙特卡洛模拟在后台线程运行，使用模块格式
+  worker: { format: 'es' },
   server: {
     host: true,
     port: 5173,

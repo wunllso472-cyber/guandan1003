@@ -2,6 +2,7 @@
 //
 // 用法：npx tsx scripts/bench.ts <A策略> <B策略> [局数] [起始种子]
 //   策略：ai（原电脑） | advisor（本地提示第一推荐） | jev（Jev 推荐，置信度不足时用本地提示；会消耗 Jev 额度）
+//         | mc（蒙特卡洛：顾问前 GD_MC_K 个候选各模拟 GD_MC_SAMPLES 种牌局，选团队结果最好的）
 //   例：npx tsx scripts/bench.ts advisor ai 2000
 //
 // 每副牌两队交换座位各打一次（配对比较），抵消牌运差异。
@@ -11,8 +12,18 @@ import { aiPlay } from '../shared/ai';
 import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
+import { monteCarlo, mcStateFrom } from '../shared/mc';
+import { writeFileSync } from 'node:fs';
 
-export type Strategy = 'ai' | 'advisor' | 'jev';
+const MC_K = Number(process.env.GD_MC_K ?? 4);
+const MC_SAMPLES = Number(process.env.GD_MC_SAMPLES ?? 40);
+/** 只在场上剩余牌数不超过这个值时模拟（残局） */
+const MC_MAXCARDS = Number(process.env.GD_MC_MAXCARDS ?? 40);
+/** 模拟结果比顾问首选好出这么多，才推翻首选 */
+const MC_MARGIN = Number(process.env.GD_MC_MARGIN ?? 0.25);
+const MC_POLICY = (process.env.GD_MC_POLICY ?? 'ai') as 'ai' | 'quick';
+
+export type Strategy = 'ai' | 'advisor' | 'jev' | 'mc';
 type Ctx = { seat: number; g: GuandanGame; tracker: CardTracker };
 
 const JEV_MIN_CONFIDENCE = 0.6;
@@ -22,6 +33,15 @@ async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Co
   if (strategy === 'ai') return aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
   const inp = { seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker };
   const adv = advise(inp);
+  const onTable = g.handCounts().reduce((a, b) => a + b, 0);
+  if (strategy === 'mc' && adv.options.length > 1 && onTable <= MC_MAXCARDS) {
+    const top = adv.options.slice(0, MC_K);
+    const r = monteCarlo(mcStateFrom(inp), top.map((o) => o.combo), 1e9, MC_SAMPLES, g.roundNo * 1000 + g.hands[seat].length, MC_POLICY);
+    // 只有明显比顾问首选好，才换成模拟结果最好的出法
+    let best = 0;
+    r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
+    return r.scores[best] - r.scores[0] >= MC_MARGIN ? top[best].combo : top[0].combo;
+  }
   if (strategy === 'jev' && adv.options.length > 1) {
     const { adviseDirect } = await import('../server/jev');
     try {
@@ -68,6 +88,7 @@ export async function bench(a: Strategy, b: Strategy, n: number, seed = 200000, 
     onProgress?.(nets.filter((x) => x !== undefined).length);
   }
   await Promise.all(Array.from({ length: parallel }, async () => { while (next < n) await playOne(next++); }));
+  if (process.env.GD_DUMP) writeFileSync(process.env.GD_DUMP, JSON.stringify(nets));
   const mean = nets.reduce((s, x) => s + x, 0) / n;
   // 配对样本：同一副牌的两局合成一个观测，方差更小
   const pairs: number[] = [];
@@ -105,7 +126,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('scripts/bench.ts')) {
     list.forEach((r) => disabledRules.add(r.trim()));
     console.log('停用规则：' + list.join(','));
   }
-  const parallel = a === 'jev' || b === 'jev' ? 4 : 1;
+  const parallel = Number(process.env.GD_PARALLEL ?? (a === 'jev' || b === 'jev' ? 4 : 1));
   const r = await bench(a as Strategy, b as Strategy, Number(n), Number(seed), parallel);
   console.log(formatResult(a, b, r));
 }
