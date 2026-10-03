@@ -1,0 +1,860 @@
+{
+ "version": 1,
+ "comment": "语音台词总表。lang: zh 普通话 / ne 东北话 / yue 粤语；speaker: player 男女声各一份，narrator 系统播报单独音色。",
+ "lines": [
+  {
+   "category": "出牌·单张",
+   "key": "single_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "二"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_3",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_4",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "四"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_5",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "五"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_6",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "六"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_7",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "七"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_8",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "八"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_9",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "九"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_10",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "十"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_11",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "勾"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_12",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "圈"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_13",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "K"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_14",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "尖"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_16",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "小王"
+  },
+  {
+   "category": "出牌·单张",
+   "key": "single_17",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "大王"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对二"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_3",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对三"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_4",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对四"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_5",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对五"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_6",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对六"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_7",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对七"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_8",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对八"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_9",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对九"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_10",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对十"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_11",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对勾"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_12",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对圈"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_13",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对K"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_14",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对尖"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_16",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对小王"
+  },
+  {
+   "category": "出牌·对子",
+   "key": "pair_17",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "对大王"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个二"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_3",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个三"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_4",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个四"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_5",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个五"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_6",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个六"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_7",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个七"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_8",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个八"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_9",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个九"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_10",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个十"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_11",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个勾"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_12",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个圈"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_13",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个K"
+  },
+  {
+   "category": "出牌·三张",
+   "key": "triple_14",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三个尖"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "fullhouse",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三带二"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "straight",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "顺子"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "tube",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "三连对"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "plate",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "钢板"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "bomb",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "炸弹！"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "bomb_big",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "大炸弹！"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "straightflush",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "同花顺！"
+  },
+  {
+   "category": "出牌·牌型",
+   "key": "jokerbomb",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "天王炸！"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_1",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "管上"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "大你"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_3",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "压死"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_4",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "要了"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_ne_1",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "必须管上"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_ne_2",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "这还能让你跑了？"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_ne_3",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "瞅我的"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_yue_1",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "食住你"
+  },
+  {
+   "category": "压牌",
+   "key": "beat_yue_2",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "大过你"
+  },
+  {
+   "category": "不出",
+   "key": "pass_1",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "不要"
+  },
+  {
+   "category": "不出",
+   "key": "pass_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "过"
+  },
+  {
+   "category": "不出",
+   "key": "pass_3",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "要不起"
+  },
+  {
+   "category": "不出",
+   "key": "pass_4",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "你走吧"
+  },
+  {
+   "category": "不出",
+   "key": "pass_ne_1",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "整不了，你们来"
+  },
+  {
+   "category": "不出",
+   "key": "pass_ne_2",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "这把我歇了"
+  },
+  {
+   "category": "不出",
+   "key": "pass_ne_3",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "过了过了"
+  },
+  {
+   "category": "不出",
+   "key": "pass_yue_1",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "唔要"
+  },
+  {
+   "category": "不出",
+   "key": "pass_yue_2",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "过"
+  },
+  {
+   "category": "不出",
+   "key": "pass_yue_3",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "你哋行先"
+  },
+  {
+   "category": "炸弹惊呼",
+   "key": "boom_1",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "看我的！"
+  },
+  {
+   "category": "炸弹惊呼",
+   "key": "boom_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "这把我说了算"
+  },
+  {
+   "category": "炸弹惊呼",
+   "key": "boom_ne_1",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "炸他！老铁！"
+  },
+  {
+   "category": "炸弹惊呼",
+   "key": "boom_ne_2",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "给你整个大的"
+  },
+  {
+   "category": "炸弹惊呼",
+   "key": "boom_yue_1",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "炸弹嚟喇！"
+  },
+  {
+   "category": "炸弹惊呼",
+   "key": "boom_yue_2",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "睇我炸翻你"
+  },
+  {
+   "category": "报牌",
+   "key": "warn_1",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "我就剩一张牌啦"
+  },
+  {
+   "category": "报牌",
+   "key": "warn_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "我就剩两张牌啦"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_0",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "快点吧，等到花儿都谢了"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_1",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "这牌打得漂亮！"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_2",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "搭档，接好了！"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_3",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "不好意思，我先走一步"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_4",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "别走，决战到天亮"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_5",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "和你配合真愉快"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_6",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "手气不太好啊"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_7",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "大家好，很高兴认识各位"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_8",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "院长，来个光棍三个！"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_9",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "吴总，叫个美女来打牌呀！"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_10",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "师者，所以传道受业解惑也！我是袁老师！"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_11",
+   "lang": "zh",
+   "speaker": "player",
+   "text": "我是不解风情的花果山石猴子！"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_ne_0",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "咋这么磨叽呢，快点儿出啊"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_ne_1",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "这把稳了，老铁"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_ne_2",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "哎呀妈呀，这牌也太好了"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_ne_3",
+   "lang": "ne",
+   "speaker": "player",
+   "text": "别走，咱唠到天亮"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_yue_0",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "快啲啦，等到花都谢埋"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_yue_1",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "好嘢！配合得几好"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_yue_2",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "唔好走，同你打到天光"
+  },
+  {
+   "category": "快捷语",
+   "key": "phrase_yue_3",
+   "lang": "yue",
+   "speaker": "player",
+   "text": "今日手气唔系几好"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_2",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打二"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_3",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打三"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_4",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打四"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_5",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打五"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_6",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打六"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_7",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打七"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_8",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打八"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_9",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打九"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_10",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打十"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_11",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打J"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_12",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打Q"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_13",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打K"
+  },
+  {
+   "category": "系统播报",
+   "key": "round_14",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "本局打A"
+  },
+  {
+   "category": "系统播报",
+   "key": "tribute",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "进贡"
+  },
+  {
+   "category": "系统播报",
+   "key": "tribute_double",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "双下，两人进贡"
+  },
+  {
+   "category": "系统播报",
+   "key": "anti_tribute",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "抗贡！"
+  },
+  {
+   "category": "系统播报",
+   "key": "return_tribute",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "还贡"
+  },
+  {
+   "category": "系统播报",
+   "key": "jiefeng",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "接风"
+  },
+  {
+   "category": "系统播报",
+   "key": "first",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "头游"
+  },
+  {
+   "category": "系统播报",
+   "key": "double_win",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "双上！"
+  },
+  {
+   "category": "系统播报",
+   "key": "pass_a",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "恭喜过A！"
+  },
+  {
+   "category": "系统播报",
+   "key": "a_fail",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "打A未过"
+  },
+  {
+   "category": "系统播报",
+   "key": "game_start",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "游戏开始"
+  },
+  {
+   "category": "系统播报",
+   "key": "game_open",
+   "lang": "zh",
+   "speaker": "narrator",
+   "text": "哦耶，城北的老登们开打了！"
+  }
+ ]
+}
