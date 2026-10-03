@@ -19,8 +19,8 @@ import { autoPickFor } from '../game/autopick';
 const PAD = 28; // 刘海屏安全边距
 /** 等待 Jev 建议的最长时间 */
 const JEV_TIMEOUT_MS = 2000;
-/** Jev 置信度低于此值时不采用它的排序 */
-const JEV_MIN_CONFIDENCE = 0.35;
+/** Jev 置信度低于此值时不采用它的排序（300 局评估：0.6 时升级数比原电脑多约 13%；0.35 时双上明显减少） */
+const JEV_MIN_CONFIDENCE = 0.6;
 
 export class TableScene extends Container {
   private bg: Sprite;
