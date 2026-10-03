@@ -284,7 +284,12 @@ export function leadOptions(ctx: AIContext): Combo[] {
     const t: ComboType = pc === 1 ? 'single' : 'pair';
     const baseHands = handsOf(split);
     const keeps = (c: Combo) => (handsOf(bestSplit(without(hand, c.cards), level)) < baseHands ? 0 : 1);
-    const small = findAllPlays(hand, level).filter((c) => c.type === t).sort((a, b) => keeps(a) - keeps(b) || a.value - b.value);
+    // 下家也只剩 1 张时，小单张会先被下家接走，改送大一点的（不超过 A）
+    const nextAlsoOne = pc === 1 && handCounts[(seat + 1) % 4] === 1;
+    const byValue = (a: Combo, b: Combo) => (nextAlsoOne ? (b.value <= 14 ? b.value : 0) - (a.value <= 14 ? a.value : 0) : a.value - b.value);
+    // 下家也只剩 1 张时宁可拆对子也要送大一点的单张（手册牌例04）；否则优先不拆牌的
+    const small = findAllPlays(hand, level).filter((c) => c.type === t)
+      .sort((a, b) => (nextAlsoOne ? byValue(a, b) : keeps(a) - keeps(b) || byValue(a, b)));
     if (small.length) return [small[0], ...nonBomb, ...bombs];
   }
   const nc = handCounts[next];

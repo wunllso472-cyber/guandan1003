@@ -51,6 +51,7 @@ export const usage = { calls: 0, inputTokens: 0 };
 const INSTRUCTIONS = {
   game: 'Guandan (掼蛋): 4 players, 2 decks (108 cards). The player "我" (me) and "对家" (partner, sits opposite) are a team; "上家" and "下家" are the opponents. A team wins the round by having both players go out first and second; going out early matters most.',
   rules: 'Card order and the wildcard are given in `level`, `rankOrder` and `wildcard`. Bombs beat any non-bomb play. Playing a combination the others cannot beat keeps the lead.',
+  rulebook: 'The team goal for this situation is in `goal`. `rulebook` lists principles from an expert Guandan study that apply here. Each option carries `rule_hits` computed from the actual cards: "supports" means the principle favours this move, "opposes" means it argues against it. Weigh these expert judgements heavily, especially STOP_FINISH, PASS_GATE and LAST_HAND.',
   context: 'My hand is `me.hand`. Cards left per player are in `players`. The play to beat (if any) is `trick.lastPlay`; `trick.lead` means I am leading a new trick. `unseenCards` counts cards not yet seen (held by the other three players). `facts` are certain; `inferred` are guesses with a confidence. `history` lists recent plays.',
   strategy: [
     'If the partner has very few cards, feed them a small play of the type they likely hold so they can go out.',
@@ -70,7 +71,7 @@ const CONTROL_EN: Record<string, string> = {
 
 /** 把候选出法写成 Choice 的选项说明（英文字段 + 中文牌面） */
 function describe(o: Record<string, unknown>): Record<string, unknown> {
-  if (o.play === '不出') return { move: 'pass (不出)' };
+  if (o.play === '不出') return { move: 'pass (不出)', rule_hits: o.rule_hits };
   return {
     move: o.play,
     hands_left_after: o.handsLeftAfter,
@@ -81,6 +82,7 @@ function describe(o: Record<string, unknown>): Record<string, unknown> {
     goes_out: o.finishesHand,
     beatable: CONTROL_EN[o.control as string] ?? o.control,
     notes: o.notes,
+    rule_hits: o.rule_hits,
   };
 }
 

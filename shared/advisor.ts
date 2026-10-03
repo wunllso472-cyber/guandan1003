@@ -4,6 +4,7 @@ import { bombLevel, comboName, isBomb, type Combo } from './combo';
 import { findAllPlays } from './finder';
 import { bestSplit, aiPlay, preferLooseCards } from './ai';
 import { CardTracker, unseenStat, type UnseenStat } from './tracker';
+import { evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
 
 export type Control = 'unbeatable' | 'bombOnly' | 'beatable';
 
@@ -34,6 +35,8 @@ export interface AdviceOption {
   /** 本地评分，越小越推荐 */
   score: number;
   reasons: string[];
+  /** 规则库的判断（见 shared/strategy.ts） */
+  rules: RuleHit[];
 }
 
 export interface Inference { who: 'partner' | 'left' | 'right'; text: string; confidence: number }
@@ -211,6 +214,7 @@ export function advise(inp: AdviceInput): Advice {
   const base = bestSplit(hand, level);
   const baseHands = base.combos.filter((x) => !isBomb(x)).length;
   const leading = !target;
+  const gateCase = leading && counts[partner] === 1 && counts[next] === 1;
   // 对手快出完时才值得拆牌去压
   const urgent = [next, prev].some((s) => counts[s] > 0 && counts[s] <= 6);
   const active = (s: number) => counts[s] > 0;
@@ -224,6 +228,8 @@ export function advise(inp: AdviceInput): Advice {
   for (const id of hand) if (!isWild(id, level)) have.set(card(id).rank, (have.get(card(id).rank) ?? 0) + 1);
 
   const options: AdviceOption[] = [];
+  /** 每个候选出完后剩下的组合，规则判断用 */
+  const restOf = new Map<AdviceOption, Combo[]>();
   const cands = findAllPlays(hand, level, target);
   cands.forEach((c0, i) => {
     const c = preferLooseCards(c0, hand, level, base.combos.map((x) => x.cards));
@@ -250,7 +256,8 @@ export function advise(inp: AdviceInput): Advice {
     if (f.finishes) { score -= 20; reasons.push('一手出完'); }
     // 强规则（±4）可以推翻电脑的决策；弱规则（±1 以内）只影响其余候选的先后
     if (leading) {
-      if (active(partner) && counts[partner] === 1 && c.type === 'single' && small) { score -= 4; reasons.push('对家只剩 1 张，出小单张让他走'); }
+      // 对家和下家都只剩 1 张时，由规则库的“传牌门槛”统一处理（手册牌例04）
+      if (active(partner) && counts[partner] === 1 && c.type === 'single' && small && !gateCase) { score -= 4; reasons.push('对家只剩 1 张，出小单张让他走'); }
       if (active(partner) && counts[partner] === 2 && c.type === 'pair' && small) { score -= 4; reasons.push('对家只剩 2 张，可能是一对，送一对小牌给他'); }
       if (active(partner) && (partnerLeads.get(c.type) ?? 0) >= 2 && small && !f.isBomb) { score -= 0.6; reasons.push(`对家多次先出${typeName(c.type)}，送一手小${typeName(c.type)}给他`); }
       if (active(partner) && partnerKnownTop && c.type === 'single' && small) { score -= 0.8; reasons.push('对家手里有外面最大的牌，出小单张让他收回出牌权'); }
@@ -262,17 +269,42 @@ export function advise(inp: AdviceInput): Advice {
     // 对手快出完时避开对应牌型
     for (const [s, name] of [[next, '下家'], [prev, '上家']] as [number, string][]) {
       if (!active(s) || f.control === 'unbeatable' || f.finishes) continue;
+      if (gateCase && s === next && c.type === 'single') continue;
       if (counts[s] === 1 && c.type === 'single') { score += s === next ? 4 : 2; reasons.push(`${name}只剩 1 张，避免出单张`); }
       if (counts[s] === 2 && c.type === 'pair') { score += s === next ? 3 : 1.5; reasons.push(`${name}只剩 2 张，避免出对子`); }
     }
     if (c.type === 'single' && cardValue(c.cards[0], level) === 15 && !(st.byRank.get(SMALL_JOKER) ?? 0) && !(st.byRank.get(BIG_JOKER) ?? 0)) {
       reasons.push('大小王已出完，级牌是最大的单张');
     }
-    if (f.breaksBomb) { score += 0.8; reasons.push('会拆掉炸弹'); }
-    else if (!urgent && !f.finishes && !f.isBomb && f.handsLeft >= baseHands) { score += 1.0; reasons.push('会拆散已有的牌型'); }
-    if (!reasons.length) reasons.push(f.handsLeft <= 1 ? '出完后很快就能走完' : `出完后还剩 ${f.handsLeft} 手牌`);
-    options.push({ id: `p${i}`, combo: c, label: comboLabel(c, level), features: f, score, reasons });
+    const opt: AdviceOption = { id: `p${i}`, combo: c, label: comboLabel(c, level), features: f, score, reasons, rules: [] };
+    restOf.set(opt, split.combos);
+    options.push(opt);
   });
+
+  // 规则库：逐条判断每个出法（需要先知道“是否存在更安全的最后一手”等全局信息）
+  const lastControl = (rest: Combo[]) => (rest.length === 1 ? controlOf(rest[0], st, level) : null);
+  const maxGateSingle = Math.max(0, ...options.filter((o) => o.combo!.type === 'single').map((o) => Math.min(14, cardValue(o.combo!.cards[0], level))));
+  const safeLastExists = options.some((o) => !o.features!.finishes && lastControl(restOf.get(o)!) !== null && lastControl(restOf.get(o)!) !== 'beatable');
+  for (const o of options) {
+    const f = o.features!;
+    const rest = restOf.get(o)!;
+    const c = o.combo!;
+    const hits = evaluateRules({
+      seat, hand, level, combo: c, target, targetSeat, counts, tracker, features: f,
+      restCombos: rest,
+      lastHandControl: lastControl(rest),
+      canRecapture: rest.some((x) => x.type === c.type && x.cards.length === c.cards.length && x.value > c.value && controlOf(x, st, level) !== 'beatable'),
+      safeLastExists,
+      breaksLinks: !urgent && !f.finishes && !f.isBomb && f.handsLeft >= baseHands,
+      maxGateSingle,
+    });
+    o.rules = hits;
+    o.score += hits.reduce((a, h) => a + h.weight, 0);
+    // 理由：分量大的规则说明排在前面
+    const ruleNotes = hits.filter((h) => Math.abs(h.weight) >= 0.5).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).map((h) => h.note);
+    o.reasons = [...new Set([...(f.finishes ? ['一手出完'] : []), ...ruleNotes, ...o.reasons])];
+    if (!o.reasons.length) o.reasons.push(f.handsLeft <= 1 ? '出完后很快就能走完' : `出完后还剩 ${f.handsLeft} 手牌`);
+  }
 
   if (target) {
     // “不出”的评分：参照电脑的跟牌规则
@@ -290,7 +322,13 @@ export function advise(inp: AdviceInput): Advice {
       score = -0.35;
       reasons.push('留着好牌，后面再出');
     }
-    options.push({ id: 'pass', combo: null, label: '不出', features: null, score, reasons });
+    const hits = evaluateRules({
+      seat, hand, level, combo: null, target, targetSeat, counts, tracker, features: null,
+      restCombos: base.combos, lastHandControl: null, canRecapture: false, safeLastExists, breaksLinks: false, maxGateSingle,
+    });
+    score += hits.reduce((a, h) => a + h.weight, 0);
+    const notes = hits.filter((h) => Math.abs(h.weight) >= 0.5).map((h) => h.note);
+    options.push({ id: 'pass', combo: null, label: '不出', features: null, score, reasons: [...new Set([...notes, ...reasons])], rules: hits });
   }
 
   // 以电脑的决策为基础：电脑会出的那手优先，只有强规则（对家/对手快出完、一手出完）才会推翻
@@ -313,8 +351,14 @@ export function buildJevContext(inp: AdviceInput, adv: Advice) {
   const unseen: Record<string, number> = {};
   for (const [r, n] of [...st.byRank].sort((a, b) => value(b[0], level) - value(a[0], level))) unseen[rankName(r)] = n;
   if (st.wilds) unseen['逢人配'] = st.wilds;
+  const goal = goalOf(seat, tracker);
+  // 只列出这个局面里实际触发的规则原则，避免无关内容干扰
+  const fired = new Set(adv.options.flatMap((o) => o.rules.map((h) => h.id)));
+  fired.add('GOAL');
   return {
     game: '掼蛋（两副牌，四人，对家为队友）',
+    goal: { first: 'Compete to go out first', second: 'Partner already went out first: go out next', protect: 'An opponent already went out first: keep the partner from finishing last and stop the opponents passing A' }[goal],
+    rulebook: [...fired].map((id) => `${id}: ${RULES[id].principle}`),
     level: rankName(level),
     rankOrder: `2<3<…<K<A<${rankName(level)}(级牌)<小王<大王`,
     wildcard: `红桃${rankName(level)}（逢人配，可当任意非王牌）`,
@@ -334,6 +378,7 @@ export function buildJevContext(inp: AdviceInput, adv: Advice) {
         isBomb: o.features.isBomb, finishesHand: o.features.finishes,
       } : {}),
       notes: o.reasons,
+      rule_hits: o.rules.map((h) => `${h.id} ${h.effect}s: ${h.en}`),
     })),
   };
 }
