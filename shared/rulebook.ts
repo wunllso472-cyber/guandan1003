@@ -3,7 +3,7 @@
 // 按实际局面判断开局 / 中局 / 残局，用规则库的匹配器找出对每个候选出法适用的规则。
 // 规则库的 priority 只是检查顺序，不是分数；这里为可落到候选出法上的规则给出方向和分量，
 // 与 shared/strategy.ts 已有规则重复的条目（如 T04≈DONT_OVERTAKE、M06≈BOMB_PURPOSE）只作依据、不重复计分。
-import { cardValue } from './cards';
+import { card, cardValue, isWild, value } from './cards';
 import { bombLevel, isBomb, type Combo, type ComboType } from './combo';
 import { ruleLibrary } from './guandan-ai/data';
 import { matchRules, type RuleLibrary, type StrategyRule } from './guandan-ai/rules';
@@ -132,6 +132,10 @@ function candidateFeatures(inp: BookInput, bs: BookState, cand: BookCandidate): 
   const vulnerable = minOpp === 1 ? restHands.some((x) => x.type === 'single' && controlOf(x) === 'beatable')
     : minOpp === 2 ? restHands.some((x) => x.type === 'pair' && controlOf(x) === 'beatable') : false;
   const secures = f.finishes || (f.control === 'unbeatable' && !f.isBomb && weakRest.length <= 1 && restHands.length <= 1);
+  // 只剩一手、外面压得住、自己拿不回出牌权：要靠对家送牌（E04）
+  const needsBridge = !f.finishes && restHands.length === 1 && weakRest.length === 1 && counts[partner] > 0;
+  // 三带二：同一个三张还能带别的对子时，算出这次带的对子和最小可带对子（H03）
+  const pairChoice = c.type === 'fullhouse' ? fullhousePairs(inp.hand, c, level) : null;
   return {
     'action.legal_validated': true,
     'action.leads_pair': leading && c.type === 'pair',
@@ -148,13 +152,33 @@ function candidateFeatures(inp: BookInput, bs: BookState, cand: BookCandidate): 
     'plan.has_bombs': rest.some(isBomb),
     'plan.has_small_special_group': rest.some((x) => SPECIAL.includes(x.type) && x.value <= 8),
     'plan.no_smooth_followup': restHands.length >= 3 && weakRest.length >= 2,
-    'plan.has_verified_clear_chain': restHands.length > 0 && weakRest.length <= 1,
+    // 清牌链：还有外面压不住的牌能拿回出牌权，弱牌不超过一手（只剩一手弱牌时归 E04）
+    'plan.has_verified_clear_chain': restHands.length >= 2 && weakRest.length <= 1,
+    'plan.needs_partner_bridge': needsBridge,
+    'plan.considers_initiative_transfer': !f.finishes && restHands.length <= 1 && counts[partner] > 0,
+    'plan.has_full_house_attachment_choice': !!pairChoice && pairChoice.options > 1,
     'plan.can_keep_low_tail': weakRest.length === 1 && restHands.length >= 2,
     'plan.low_route_unrecoverable': unrecoverable,
     'plan.shares_vulnerable_listen_route': vulnerable,
     // 级牌单张：用于“同类最大”的判断说明
     'belief.claims_top_route': c.type === 'single' && cardValue(c.cards[0], level) === 15 ? true : undefined,
   };
+}
+
+/** 三带二的附带对子：这次带的对子点值、手里能带的最小对子点值、可选对子数 */
+function fullhousePairs(hand: number[], c: Combo, level: number): { mine: number; min: number; options: number } | null {
+  const naturals = c.cards.filter((id) => !isWild(id, level));
+  const byRank = new Map<number, number>();
+  for (const id of naturals) byRank.set(card(id).rank, (byRank.get(card(id).rank) ?? 0) + 1);
+  const triple = [...byRank].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const pairRank = [...byRank.keys()].find((r) => r !== triple);
+  if (triple === undefined || pairRank === undefined) return null;
+  const held = new Map<number, number>();
+  for (const id of hand) if (!isWild(id, level)) held.set(card(id).rank, (held.get(card(id).rank) ?? 0) + 1);
+  // 只看自然对子（不用配牌）、不拆炸弹的可带对子
+  const pairs = [...held].filter(([r, n]) => r !== triple && n >= 2 && n < 4 && r < 16).map(([r]) => cardValue(hand.find((id) => card(id).rank === r && !isWild(id, level))!, level));
+  if (!pairs.length) return null;
+  return { mine: value(pairRank, level), min: Math.min(...pairs), options: pairs.length };
 }
 
 type Weigh = (x: { inp: BookInput; bs: BookState; cand: BookCandidate | null; fc: FeatureContext }) => { w: number; note: string } | null;
@@ -202,6 +226,21 @@ const WEIGHTS: Record<string, Weigh> = {
     ? { w: -0.3, note: '对手快听牌，先出同类最大的牌逼他用炸弹' } : null,
   E06: () => ({ w: -0.4, note: '对手快出完，小炸弹及时用掉争出牌权' }),
   E07: () => ({ w: 0.5, note: '有大炸弹但炸完后走不顺，对手也不急，先留着' }),
+  E04: ({ cand }) => {
+    if (!cand) return null;
+    const tail = cand.rest.find((x) => !isBomb(x));
+    if (!tail) return null;
+    return tail.value >= 10
+      ? { w: -0.3, note: '最后留一手较大的牌，对家送牌时接得住、对手不容易截' }
+      : { w: 0.2, note: '最后留的牌太小，对家送牌时也容易被对手截走' };
+  },
+  H03: ({ inp, cand }) => {
+    if (!cand) return null;
+    const pc = fullhousePairs(inp.hand, cand.combo, inp.level);
+    if (!pc || pc.options < 2) return null;
+    // 出牌生成器默认带最小的对子，已符合 H03，只作依据不计分（否则等于额外鼓励出三带二）
+    return pc.mine <= pc.min ? null : { w: 0.2, note: '三带二带了大对子，小对子还留在手里' };
+  },
 };
 
 /** 对一个候选（null 表示不出）找出适用的教材规则，并给出分量 */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DECK, type Suit } from '../shared/cards';
+import { DECK, card, type Suit } from '../shared/cards';
 import { parseCombos } from '../shared/combo';
 import { CardTracker } from '../shared/tracker';
 import { advise, buildJevContext } from '../shared/advisor';
@@ -47,6 +47,28 @@ describe('教材规则库接入', () => {
     // 交给 Jev 的信息包含相关教材规则
     const ctx = buildJevContext(inp, adv);
     expect(ctx.textbookRules.some((s: string) => s.startsWith('M03'))).toBe(true);
+  });
+
+  it('三带二优先带走难出的小对子（H03）', () => {
+    const used = new Set<number>();
+    const hand = ids('S9 H9 C9 D3 C3 SQ HQ C6 D8 SK', used);
+    const adv = advise({ seat: 0, hand, level: 2, target: null, targetSeat: null, counts: [10, 20, 20, 20], tracker: setup(2) });
+    const fh = adv.options.filter((o) => o.combo?.type === 'fullhouse');
+    // 生成的三带二带的是最小的对子（3），H03 作为依据匹配，但不额外计分
+    expect(fh.length).toBe(1);
+    expect(fh[0].combo!.cards.filter((id) => card(id).rank === 3).length).toBe(2);
+    expect(fh[0].book).toContain('H03');
+    expect(fh[0].rules.some((h) => h.id === 'H03')).toBe(false);
+  });
+
+  it('要靠对家送牌时留较大的尾牌（E04）', () => {
+    const used = new Set<number>();
+    const hand = ids('SK D4', used);
+    const adv = advise({ seat: 0, hand, level: 2, target: null, targetSeat: null, counts: [2, 12, 8, 12], tracker: setup(2) });
+    const lead4 = adv.options.find((o) => o.label === '单张4')!;
+    const leadK = adv.options.find((o) => o.label === '单张K')!;
+    expect(lead4.rules.find((h) => h.id === 'E04')?.weight).toBeLessThan(0);
+    expect(leadK.rules.find((h) => h.id === 'E04')?.weight).toBeGreaterThan(0);
   });
 
   it('对手在本方领出的牌型上反复顺牌时，换一条路（M01）', () => {
