@@ -71,6 +71,23 @@ describe('教材规则库接入', () => {
     expect(leadK.rules.find((h) => h.id === 'E04')?.weight).toBeGreaterThan(0);
   });
 
+  it('上家剩得不多时，一直放行要扣分（M07）', () => {
+    const used = new Set<number>();
+    const hand = ids('S3 S5 H7 C9 DJ SK SA HA C4 D6 S8 HQ', used);
+    const target = parseCombos(ids('D8', used), 2)[0];
+    const adv = advise({ seat: 0, hand, level: 2, target, targetSeat: 3, counts: [12, 20, 15, 7], tracker: setup(2) });
+    const pass = adv.options.find((o) => o.id === 'pass')!;
+    expect(pass.rules.find((h) => h.id === 'M07')?.weight).toBeGreaterThan(0);
+  });
+
+  it('对手只剩 1 张时，不白白用掉最大的单张（E11）', () => {
+    const used = new Set<number>();
+    const hand = ids('SA C5 C6 C7 C8 C9 D3 D3', used);
+    const adv = advise({ seat: 0, hand, level: 2, target: null, targetSeat: null, counts: [8, 1, 9, 12], tracker: setup(2) });
+    const ace = adv.options.find((o) => o.label === '单张A')!;
+    expect(ace.rules.find((h) => h.id === 'E11')?.weight).toBeGreaterThan(0);
+  });
+
   it('对手在本方领出的牌型上反复顺牌时，换一条路（M01）', () => {
     const used = new Set<number>();
     const tr = setup(2);

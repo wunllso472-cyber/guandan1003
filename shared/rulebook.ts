@@ -104,6 +104,10 @@ export function bookState(inp: BookInput): BookState {
     'state.opponent_repeatedly_sheds_on_route': shedTypes.size > 0,
     'state.self_has_strong_bomb': baseCombos.some((c) => isBomb(c) && bombLevel(c) >= 3),
     'state.single_route_weak': singlesLow >= 3,
+    // T03：自己按牌力偏主攻，但对家已经比自己少很多张，主攻应转给对家
+    'state.attack_role_needs_review': strength !== 'weak' && active(partner) && counts[partner] + 6 <= hand.length,
+    // M07：上家（对手）出的牌，他剩得不多，放行可能让他先走
+    'state.upstream_can_feed_self': target !== null && targetSeat === prev && active(prev) && counts[prev] <= 8,
   };
   return { stage, features, shedTypes, profiles };
 }
@@ -160,6 +164,15 @@ function candidateFeatures(inp: BookInput, bs: BookState, cand: BookCandidate): 
     'plan.can_keep_low_tail': weakRest.length === 1 && restHands.length >= 2,
     'plan.low_route_unrecoverable': unrecoverable,
     'plan.shares_vulnerable_listen_route': vulnerable,
+    // H04：首出对子且手里还剩两对以上
+    'plan.can_keep_pair_gradient': leading && c.type === 'pair' && restHands.filter((x) => x.type === 'pair').length >= 2,
+    // O02：首出外面压得住的小牌，同时还留着外面压不住的牌（藏优）
+    'action.hides_strength': leading && !f.isBomb && f.control === 'beatable' && c.value <= 10 && restHands.some((x) => controlOf(x) !== 'beatable'),
+    // E08：对手快听牌，拆炸弹组出的牌外面压不住
+    'plan.can_split_bomb_for_safe_group': f.breaksBomb && !f.isBomb && f.control !== 'beatable' && typeof minOpp === 'number' && minOpp <= 5,
+    // E11：对手只剩 1 张时，这手用掉了自己最大的单张（拦截送牌的干扰牌）
+    'plan.can_interfere_enemy_bridge': minOpp === 1 && !f.finishes && c.type === 'single' && cardValue(c.cards[0], level) >= 14
+      && !restHands.some((x) => x.type === 'single' && x.value >= 14),
     // 级牌单张：用于“同类最大”的判断说明
     'belief.claims_top_route': c.type === 'single' && cardValue(c.cards[0], level) === 15 ? true : undefined,
   };
@@ -226,6 +239,29 @@ const WEIGHTS: Record<string, Weigh> = {
     ? { w: -0.3, note: '对手快听牌，先出同类最大的牌逼他用炸弹' } : null,
   E06: () => ({ w: -0.4, note: '对手快出完，小炸弹及时用掉争出牌权' }),
   E07: () => ({ w: 0.5, note: '有大炸弹但炸完后走不顺，对手也不急，先留着' }),
+  T03: ({ cand, fc, inp }) => {
+    if (!cand) return null;
+    if (fc['action.intends_feed_partner']) return { w: -0.3, note: '对家牌比我少得多，主攻交给对家，给他送牌' };
+    if (inp.targetSeat === (inp.seat + 2) % 4 && !cand.features.finishes) return { w: 0.3, note: '对家牌比我少得多，别抢他的牌' };
+    return null;
+  },
+  H04: ({ cand }) => {
+    if (!cand) return null;
+    const pairs = [...cand.rest.filter((x) => x.type === 'pair').map((x) => x.value), cand.combo.value];
+    return cand.combo.value <= Math.min(...pairs)
+      ? { w: -0.15, note: '先走小对子，留下大小有梯度的对子方便回收' }
+      : { w: 0.15, note: '先走了大对子，剩下的对子回收能力变弱' };
+  },
+  O02: ({ cand, inp }) => {
+    if (!cand) return null;
+    const weak = cand.rest.filter((x) => !isBomb(x) && inp.controlOf(x) === 'beatable').length;
+    return weak >= 3
+      ? { w: 0.3, note: '藏优要有前提：重新上手后还有多手弱牌，不宜先走弱牌' }
+      : { w: -0.2, note: '上手资源够，先走弱牌、藏住优势牌' };
+  },
+  M07: ({ cand, inp }) => (!cand ? { w: 0.3, note: `上家只剩 ${inp.counts[inp.targetSeat!]} 张，一直放行可能让他先走` } : null),
+  E08: () => ({ w: -0.5, note: '对手快听牌，拆炸组出外面压不住的牌来阻截' }),
+  E11: () => ({ w: 0.3, note: '对手只剩 1 张，最大的单张留着拦截他搭档的送牌' }),
   E04: ({ cand }) => {
     if (!cand) return null;
     const tail = cand.rest.find((x) => !isBomb(x));
