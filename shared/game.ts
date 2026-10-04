@@ -3,6 +3,7 @@
 import { ALL_IDS, card, shuffle, sortByValueDesc, cardValue, BIG_JOKER } from './cards';
 import { playableInterpretations, resolvePlay, type Combo } from './combo';
 import { tributeCard } from './ai';
+import { smartTribute } from './tribute';
 
 export type Phase = 'idle' | 'return' | 'play' | 'roundEnd' | 'gameEnd';
 
@@ -49,6 +50,8 @@ export class GuandanGame {
   pendingReturns: { from: number; to: number }[] = [];
   /** 上一局的名次，用于进贡 */
   prevOrder: number[] | null = null;
+  /** 评估用：这些座位进贡时用原来的选法（不考虑花色，见 shared/tribute.ts） */
+  basicTributeSeats = new Set<number>();
   firstLeader = -1;
   roundNo = 0;
 
@@ -106,7 +109,11 @@ export class GuandanGame {
       this.beginPlay(first);
       return;
     }
-    const gifts = givers.map((s) => ({ from: s, card: tributeCard(this.hands[s], this.level) }));
+    // 单下时末游贡给头游，两人可能是搭档（一四名同队）；双下时都贡给敌方
+    const pick = (s: number) => this.basicTributeSeats.has(s)
+      ? tributeCard(this.hands[s], this.level)
+      : smartTribute(this.hands[s], this.level, !doubleDown && teamOf(s) === teamOf(first));
+    const gifts = givers.map((s) => ({ from: s, card: pick(s) }));
     let list: TributeInfo[];
     if (!doubleDown) {
       list = [{ from: gifts[0].from, to: first, card: gifts[0].card }];

@@ -1,7 +1,8 @@
 // 牌桌控制器：在规则引擎外加上计时、AI 座位、托管。
 // 单机（浏览器内）和联机（服务端）共用。
-import { GuandanGame, type GameEvent, type RoundResult } from './game';
-import { aiPlay, returnCard, hintOptions } from './ai';
+import { GuandanGame, teamOf, type GameEvent, type RoundResult } from './game';
+import { aiPlay, hintOptions } from './ai';
+import { smartReturn } from './tribute';
 import { smartDecide, type DecisionLog } from './autoplay';
 import { CardTracker } from './tracker';
 import { isBomb, type Combo } from './combo';
@@ -194,7 +195,7 @@ export class Table {
         const seat = pr.from;
         const act = () => {
           if (g.phase === 'return' && g.pendingReturns.some((p) => p.from === seat)) {
-            g.returnTribute(seat, returnCard(g.hands[seat], g.level));
+            g.returnTribute(seat, smartReturn(g.hands[seat], g.level, teamOf(seat) === teamOf(pr.to)));
           }
         };
         if (this.controlled(seat)) {
