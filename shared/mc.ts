@@ -3,8 +3,8 @@
 import { GuandanGame, partnerOf, teamOf } from './game';
 import { bestSplit, aiPlay } from './ai';
 import { findAllPlays } from './finder';
-import { bombLevel, isBomb, type Combo } from './combo';
-import { card, shuffle } from './cards';
+import { bombLevel, isBomb, type Combo, type ComboType } from './combo';
+import { card, cardValue, isWild, shuffle } from './cards';
 import type { CardTracker } from './tracker';
 
 /** 模拟需要的局面数据（纯数据，可以传给 Web Worker） */
@@ -26,7 +26,33 @@ export interface MCState {
   passCount: number;
   /** 自己出完后能看到的对家手牌 */
   partnerHand?: number[] | null;
+  /**
+   * 出牌记录里的线索：某家面对对手出的这种牌选择了不出（每家每种牌型取最小的那次）。
+   * 推测手牌时降低他持有能压过这手牌的同类大牌的概率（只降低，不排除：不跟不代表没有）。
+   */
+  passed?: { seat: number; type: ComboType; value: number }[];
+  /**
+   * 线索（教材 I02 点数空隙）：某家跟牌时用 hi 压了 lo，跳过了中间的点数——
+   * 通常说明他没有中间点数的同类牌（否则会用更小的压），降低他持有这些点数的概率。
+   */
+  gaps?: { seat: number; type: ComboType; lo: number; hi: number }[];
 }
+
+/**
+ * 推断加权猜牌的开关与分量（分量是该家持有对应牌的相对概率）。
+ * 实测（scripts/infer-accuracy.ts，电脑对局 40–60 局、约 4000 个决策点）：
+ *   均匀随机猜对约 47.4%；“不跟”线索按 0.6/0.3/0.1 加权、“跟牌空隙”按 0.5/0.2 加权都让猜牌略差，
+ *   反向加权也只在 ±0.1% 内——这些公开线索对推测手牌几乎没有信息量（印证教材 L05“不跟不是缺牌证明”）。
+ * 因此默认关闭，保留用于以后验证新的线索。
+ */
+export const mcInfer = {
+  enabled: false,
+  /** 面对对手的牌不出：实测会让猜牌更不准（不跟的人常常留着大牌），默认不用 */
+  usePasses: false,
+  weight: { single: 0.6, pair: 0.8, triple: 0.85, fullhouse: 0.85 } as Partial<Record<ComboType, number>>,
+  useGaps: true,
+  gapWeight: 0.5,
+};
 
 export interface MCResult {
   /** 每个候选的平均团队得分（我方净升级） */
@@ -36,7 +62,7 @@ export interface MCResult {
 }
 
 /** 随机推测其他人的手牌：已知的牌先放好，其余随机分配，张数与实际一致 */
-function determinize(st: MCState, seed: number): number[][] | null {
+export function determinize(st: MCState, seed: number): number[][] | null {
   const hands: number[][] = [[], [], [], []];
   hands[st.seat] = [...st.hand];
   const partner = partnerOf(st.seat);
@@ -47,15 +73,48 @@ function determinize(st: MCState, seed: number): number[][] | null {
     for (const id of st.known[s] ?? []) if (pool.has(id)) { hands[s].push(id); pool.delete(id); }
   }
   const rest = shuffle([...pool], seed);
-  let k = 0;
-  for (let s = 0; s < 4; s++) {
-    if (s === st.seat || (st.partnerHand && s === partner)) continue;
-    const need = st.counts[s] - hands[s].length;
-    if (need < 0 || k + need > rest.length) return null;
-    hands[s].push(...rest.slice(k, k + need));
-    k += need;
+  const seats = [0, 1, 2, 3].filter((s) => s !== st.seat && !(st.partnerHand && s === partner));
+  const need = seats.map((s) => st.counts[s] - hands[s].length);
+  if (need.some((n) => n < 0) || need.reduce((a, b) => a + b, 0) > rest.length) return null;
+  const weightOf = cardWeights(st, seats);
+  if (!weightOf) {
+    let k = 0;
+    seats.forEach((s, i) => { hands[s].push(...rest.slice(k, k + need[i])); k += need[i]; });
+    return hands;
   }
-  return hands;
+  // 加权分配：每张牌按“该家还缺几张 × 该家持有这张牌的相对概率”随机给一家
+  let r = (seed * 2654435761) >>> 0;
+  const rand = () => { r = (r + 0x6d2b79f5) >>> 0; let t = Math.imul(r ^ (r >>> 15), 1 | r); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  for (const id of rest) {
+    let total = 0;
+    const ws = seats.map((s, i) => { const w = need[i] > 0 ? need[i] * weightOf(i, id) : 0; total += w; return w; });
+    if (total <= 0) continue;
+    let x = rand() * total, i = 0;
+    while (i < ws.length - 1 && x >= ws[i]) { x -= ws[i]; i++; }
+    hands[seats[i]].push(id);
+    need[i]--;
+  }
+  return need.every((n) => n === 0) ? hands : null;
+}
+
+/** 每家持有某张牌的相对概率（没有线索时返回 null，按均匀随机分配） */
+function cardWeights(st: MCState, seats: number[]): ((i: number, id: number) => number) | null {
+  if (!mcInfer.enabled) return null;
+  const passes = seats.map((s) => (mcInfer.usePasses ? (st.passed ?? []).filter((p) => p.seat === s) : []));
+  const gaps = seats.map((s) => (mcInfer.useGaps ? (st.gaps ?? []).filter((p) => p.seat === s) : []));
+  if (passes.every((l) => !l.length) && gaps.every((l) => !l.length)) return null;
+  const lv = st.level;
+  return (i, id) => {
+    if (isWild(id, lv)) return 1; // 逢人配什么都能凑，不受影响
+    const v = cardValue(id, lv);
+    let w = 1;
+    for (const p of passes[i]) {
+      const k = mcInfer.weight[p.type];
+      if (k !== undefined && v > p.value) w *= k;
+    }
+    for (const gp of gaps[i]) if (v > gp.lo && v < gp.hi) { w *= mcInfer.gapWeight; break; }
+    return w;
+  };
 }
 
 /** 推演用的简化电脑：首出按拆牌结果出最小的组合；跟牌出最小的、不拆炸弹的牌；不压对家；对手快走完才炸 */
@@ -171,6 +230,27 @@ export function mcStateFrom(inp: {
   let passCount = 0;
   for (let i = tracker.history.length - 1; i >= 0 && !tracker.history[i].combo; i--) passCount++;
   const finishOrder = [0, 1, 2, 3].filter((s) => tracker.seats[s].place > 0).sort((a, b) => tracker.seats[a].place - tracker.seats[b].place);
+  // 线索：面对对手出的单张/对子/三张/三带二选择不出（面对对家的牌不出是让牌，不算）
+  const minPass = new Map<string, { seat: number; type: ComboType; value: number }>();
+  let last: { seat: number; combo: Combo } | null = null;
+  const gaps: { seat: number; type: ComboType; lo: number; hi: number }[] = [];
+  for (const h of tracker.history) {
+    if (h.combo) {
+      // 跟牌跳过了中间点数（单张、对子），自己的出牌不用推断
+      if (!h.lead && last && h.seat !== seat && (h.combo.type === 'single' || h.combo.type === 'pair')
+        && h.combo.type === last.combo.type && h.combo.value - last.combo.value >= 2) {
+        gaps.push({ seat: h.seat, type: h.combo.type, lo: last.combo.value, hi: h.combo.value });
+      }
+      last = { seat: h.seat, combo: h.combo };
+      continue;
+    }
+    if (!last || h.seat === seat || teamOf(h.seat) === teamOf(last.seat)) continue;
+    const t = last.combo.type;
+    if (!(t in mcInfer.weight)) continue;
+    const key = `${h.seat}:${t}`;
+    const prev = minPass.get(key);
+    if (!prev || last.combo.value < prev.value) minPass.set(key, { seat: h.seat, type: t, value: last.combo.value });
+  }
   return {
     seat, level, hand: [...hand], counts: [...counts],
     unseen: tracker.unseen(hand, inp.partnerHand ?? null),
@@ -179,6 +259,8 @@ export function mcStateFrom(inp: {
     lastPlay: target && targetSeat !== null ? { seat: targetSeat, combo: target } : null,
     passCount: target ? passCount : 0,
     partnerHand: inp.partnerHand ?? null,
+    passed: [...minPass.values()],
+    gaps,
   };
 }
 
