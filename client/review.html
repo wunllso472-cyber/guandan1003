@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#14532d" />
+  <title>掼蛋复盘</title>
+  <style>
+    :root {
+      --felt: #1f6b3a; --felt-dark: #14532d; --panel: rgba(0, 0, 0, 0.22); --ink: #fdf6e3; --muted: #b9d7c2;
+      --gold: #f5c542; --red: #d93a3a; --black: #1d1d1d; --card: #fffdf7; --good: #3fbf6b; --bad: #ef5b5b; --line: rgba(255, 255, 255, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; color: var(--ink); background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%) fixed;
+      font: 14px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left));
+    }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0; letter-spacing: 1px; }
+    header select { flex: 1 1 220px; min-width: 0; }
+    a.back, button, select {
+      font: inherit; color: var(--ink); background: rgba(255, 255, 255, 0.12); border: 1px solid var(--line);
+      border-radius: 999px; padding: 6px 14px; text-decoration: none; cursor: pointer;
+    }
+    select { border-radius: 10px; max-width: 100%; }
+    select option { color: #222; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    .nav { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
+    .nav input[type=range] { flex: 1; min-width: 120px; accent-color: var(--gold); }
+    .nav .pos { min-width: 88px; text-align: center; color: var(--muted); }
+    .empty { margin-top: 40px; text-align: center; color: var(--muted); }
+    .summary { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+
+    .step { display: grid; gap: 12px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .badge { font-size: 12px; padding: 2px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); }
+    .badge.gold { background: var(--gold); color: #3b2a00; font-weight: 700; }
+
+    /* 牌桌：上家左、对家上、下家右，中间是上一手 */
+    .table { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); grid-template-areas: "left top right" "left center right"; }
+    .seat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px; min-width: 0; }
+    .seat.partner { border-color: rgba(245, 197, 66, 0.55); }
+    .seat.left { grid-area: left; } .seat.top { grid-area: top; } .seat.right { grid-area: right; }
+    .seat h3 { margin: 0 0 6px; font-size: 14px; display: flex; justify-content: space-between; gap: 6px; }
+    .seat h3 .left-n { color: var(--gold); font-weight: 700; white-space: nowrap; }
+    .plays { display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow-y: auto; }
+    .play-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .play-row .tag { font-size: 11px; color: var(--muted); min-width: 16px; }
+    .play-row .cards { flex: 1; min-width: 0; }
+    .none { color: var(--muted); font-size: 12px; }
+    .center { grid-area: center; background: rgba(0, 0, 0, 0.3); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; border: 1px dashed var(--line); }
+    .center .who { color: var(--gold); font-weight: 700; }
+
+    /* 牌 */
+    .cards { display: flex; flex-wrap: wrap; gap: 3px; }
+    .c {
+      display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 34px; padding: 0 3px;
+      background: var(--card); color: var(--black); border-radius: 5px; font-weight: 700; font-size: 13px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); position: relative; white-space: nowrap;
+    }
+    .c.red { color: var(--red); }
+    .c.joker { font-size: 11px; padding: 0 4px; }
+    .c.wild::after { content: "配"; position: absolute; top: -6px; right: -5px; font-size: 9px; background: var(--gold); color: #3b2a00; border-radius: 6px; padding: 0 3px; }
+    .c.sm { min-width: 22px; height: 28px; font-size: 12px; }
+    .c.hl { outline: 3px solid var(--gold); transform: translateY(-4px); }
+    .hand { background: var(--panel); border: 1px solid rgba(245, 197, 66, 0.55); border-radius: 14px; padding: 10px; }
+    .hand h3 { margin: 0 0 8px; font-size: 14px; }
+
+    /* 决策 */
+    .decide { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .scroll-x { overflow-x: auto; }
+    .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-width: 0; }
+    .box h3 { margin: 0 0 8px; font-size: 14px; }
+    .verdict { font-size: 16px; font-weight: 700; }
+    .verdict.same { color: var(--good); } .verdict.diff { color: var(--bad); }
+    .rules { display: flex; flex-direction: column; gap: 6px; }
+    .rule { border-left: 4px solid var(--good); background: rgba(63, 191, 107, 0.12); padding: 4px 8px; border-radius: 6px; }
+    .rule.oppose { border-color: var(--bad); background: rgba(239, 91, 91, 0.12); }
+    .rule b { margin-right: 6px; }
+    .rule .w { float: right; color: var(--muted); font-size: 12px; }
+    .reasons { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 400; }
+    tr.chosen td { color: var(--gold); font-weight: 700; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    @media (max-width: 720px) {
+      .table { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "top top" "left right" "center center"; }
+      .decide { grid-template-columns: minmax(0, 1fr); }
+      .nav .pos { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>掼蛋复盘</h1>
+    <select id="round" aria-label="选择对局"></select>
+    <a class="back" href="./index.html">返回游戏</a>
+  </header>
+  <div id="app"></div>
+  <script type="module" src="./src/review/main.ts"></script>
+</body>
+</html>

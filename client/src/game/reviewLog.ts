@@ -9,7 +9,7 @@ import type { ClientEvent, GameClient } from './types';
 import { logsUrl } from '../net/Connection';
 
 /** 一条出牌记录 */
-interface Entry {
+export interface Entry {
   /** play 出牌 / pass 不出 / trick 一轮结束 / finish 出完 / tribute 进贡还贡 */
   t: 'play' | 'pass' | 'trick' | 'finish' | 'tribute';
   /** 座位 */
@@ -52,7 +52,8 @@ export interface RoundRecord {
 const STORE = 'gd_review_v1';
 const KEEP = 40;
 
-function loadAll(): RoundRecord[] {
+/** 本机保存的复盘记录（旧的在前） */
+export function loadAll(): RoundRecord[] {
   try { return JSON.parse(localStorage.getItem(STORE) ?? '[]') as RoundRecord[]; } catch { return []; }
 }
 
