@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "tsc --noEmit && vite build && npm run build:server",
+    "build": "tsc --noEmit && npm run build:server",
     "start": "node dist/server.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build:client": "tsc --noEmit && vite build",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/server.mjs"
+    "build:server": "vite build && esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/server.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",
