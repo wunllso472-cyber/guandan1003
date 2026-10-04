@@ -130,6 +130,12 @@ export function formatResult(a: string, b: string, r: BenchResult): string {
 // 命令行入口
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('scripts/bench.ts')) {
   const [a = 'advisor', b = 'ai', n = '1000', seed = '200000'] = process.argv.slice(2);
+  // 评估用：GD_DISABLE_BOOK=1 停用教材规则库（shared/rulebook.ts）
+  if (process.env.GD_DISABLE_BOOK === '1') {
+    const { bookSwitch } = await import('../shared/rulebook');
+    bookSwitch.enabled = false;
+    console.log('停用教材规则库');
+  }
   // 评估用：GD_DISABLE_RULES=BOMB_PURPOSE,LAST_HAND 临时停用规则库中的规则（ALL 表示全部）
   if (process.env.GD_DISABLE_RULES) {
     const { disabledRules, RULES } = await import('../shared/strategy');

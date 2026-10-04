@@ -5,6 +5,7 @@ import { findAllPlays } from './finder';
 import { bestSplit, aiPlay, preferLooseCards } from './ai';
 import { CardTracker, unseenStat, type UnseenStat } from './tracker';
 import { evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
+import { BOOK_RULES, bookGuidance, bookHits, bookState, type BookInput } from './rulebook';
 
 export type Control = 'unbeatable' | 'bombOnly' | 'beatable';
 
@@ -35,14 +36,18 @@ export interface AdviceOption {
   /** 本地评分，越小越推荐 */
   score: number;
   reasons: string[];
-  /** 规则库的判断（见 shared/strategy.ts） */
+  /** 规则库的判断（见 shared/strategy.ts 与 shared/rulebook.ts） */
   rules: RuleHit[];
+  /** 适用于这个出法的教材规则编号（含只作参考、不计分的） */
+  book?: string[];
 }
 
 export interface Inference { who: 'partner' | 'left' | 'right'; text: string; confidence: number }
 
 export interface Advice {
   options: AdviceOption[];
+  /** 按实际局面判断的阶段 */
+  stage?: string;
   facts: string[];
   inferred: Inference[];
 }
@@ -285,23 +290,31 @@ export function advise(inp: AdviceInput): Advice {
   const lastControl = (rest: Combo[]) => (rest.length === 1 ? controlOf(rest[0], st, level) : null);
   const maxGateSingle = Math.max(0, ...options.filter((o) => o.combo!.type === 'single').map((o) => Math.min(14, cardValue(o.combo!.cards[0], level))));
   const safeLastExists = options.some((o) => !o.features!.finishes && lastControl(restOf.get(o)!) !== null && lastControl(restOf.get(o)!) !== 'beatable');
+  // 教材规则库：先算与候选无关的局面特征
+  const bookIn: BookInput = { seat, hand, level, target, targetSeat, counts, tracker, baseCombos: base.combos, controlOf: (x) => controlOf(x, st, level) };
+  const bs = bookState(bookIn);
   for (const o of options) {
     const f = o.features!;
     const rest = restOf.get(o)!;
     const c = o.combo!;
-    const hits = evaluateRules({
+    const canRecapture = rest.some((x) => x.type === c.type && x.cards.length === c.cards.length && x.value > c.value && controlOf(x, st, level) !== 'beatable');
+    const book = bookHits(bookIn, bs, { combo: c, features: f, rest, baseHands, canRecapture });
+    const hits = [...evaluateRules({
       seat, hand, level, combo: c, target, targetSeat, counts, tracker, features: f,
       restCombos: rest,
       lastHandControl: lastControl(rest),
-      canRecapture: rest.some((x) => x.type === c.type && x.cards.length === c.cards.length && x.value > c.value && controlOf(x, st, level) !== 'beatable'),
+      canRecapture,
       safeLastExists,
       breaksLinks: !urgent && !f.finishes && !f.isBomb && f.handsLeft >= baseHands,
       maxGateSingle,
-    });
+    }), ...book.hits];
     o.rules = hits;
+    o.book = book.matched.map((r) => r.id);
     o.score += hits.reduce((a, h) => a + h.weight, 0);
     // 理由：分量大的规则说明排在前面
-    const ruleNotes = hits.filter((h) => Math.abs(h.weight) >= 0.5).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).map((h) => h.note);
+    // 教材规则支持这个出法时，即使分量小也作为理由（反对的只在分量大时说明）
+    const ruleNotes = hits.filter((h) => Math.abs(h.weight) >= 0.5 || (h.id in BOOK_RULES && h.weight < 0))
+      .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).map((h) => h.note);
     o.reasons = [...new Set([...(f.finishes ? ['一手出完'] : []), ...ruleNotes, ...o.reasons])];
     if (!o.reasons.length) o.reasons.push(f.handsLeft <= 1 ? '出完后很快就能走完' : `出完后还剩 ${f.handsLeft} 手牌`);
   }
@@ -322,13 +335,14 @@ export function advise(inp: AdviceInput): Advice {
       score = -0.35;
       reasons.push('留着好牌，后面再出');
     }
-    const hits = evaluateRules({
+    const book = bookHits(bookIn, bs, null);
+    const hits = [...evaluateRules({
       seat, hand, level, combo: null, target, targetSeat, counts, tracker, features: null,
       restCombos: base.combos, lastHandControl: null, canRecapture: false, safeLastExists, breaksLinks: false, maxGateSingle,
-    });
+    }), ...book.hits];
     score += hits.reduce((a, h) => a + h.weight, 0);
     const notes = hits.filter((h) => Math.abs(h.weight) >= 0.5).map((h) => h.note);
-    options.push({ id: 'pass', combo: null, label: '不出', features: null, score, reasons: [...new Set([...notes, ...reasons])], rules: hits });
+    options.push({ id: 'pass', combo: null, label: '不出', features: null, score, reasons: [...new Set([...notes, ...reasons])], rules: hits, book: book.matched.map((r) => r.id) });
   }
 
   // 以电脑的决策为基础：电脑会出的那手优先，只有强规则（对家/对手快出完、一手出完）才会推翻
@@ -339,7 +353,7 @@ export function advise(inp: AdviceInput): Advice {
     if (k === aiKey && !o.features?.finishes) o.score -= 3;
   }
   options.sort((a, b) => a.score - b.score);
-  return { options, facts, inferred };
+  return { options, facts, inferred, stage: bs.stage };
 }
 
 // ---------- 交给 Jev 的信息 ----------
@@ -358,7 +372,10 @@ export function buildJevContext(inp: AdviceInput, adv: Advice) {
   return {
     game: '掼蛋（两副牌，四人，对家为队友）',
     goal: { first: 'Compete to go out first', second: 'Partner already went out first: go out next', protect: 'An opponent already went out first: keep the partner from finishing last and stop the opponents passing A' }[goal],
-    rulebook: [...fired].map((id) => `${id}: ${RULES[id].principle}`),
+    rulebook: [...fired].filter((id) => RULES[id]).map((id) => `${id}: ${RULES[id].principle}`),
+    stage: { opening: '开局', middle: '中局', endgame: '残局' }[adv.stage ?? ''] ?? adv.stage,
+    // 教材规则库（江苏省掼蛋教材）：只列出与本局面候选相关的条目
+    textbookRules: bookGuidance(adv.options.slice(0, 6).flatMap((o) => [...o.rules.map((h) => h.id), ...(o.book ?? [])])),
     level: rankName(level),
     rankOrder: `2<3<…<K<A<${rankName(level)}(级牌)<小王<大王`,
     wildcard: `红桃${rankName(level)}（逢人配，可当任意非王牌）`,

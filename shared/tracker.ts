@@ -29,7 +29,7 @@ export class CardTracker {
   /** 已经打出的所有牌 */
   played = new Set<number>();
   /** 出牌历史，combo 为 null 表示不出 */
-  history: { seat: number; combo: Combo | null }[] = [];
+  history: { seat: number; combo: Combo | null; lead?: boolean }[] = [];
   /** 当前这一轮最后一手牌 */
   lastPlay: { seat: number; combo: Combo } | null = null;
 
@@ -60,7 +60,7 @@ export class CardTracker {
         s.plays.push(e.combo);
         s.count = e.left;
         for (const id of e.combo.cards) { this.played.add(id); s.known.delete(id); }
-        this.history.push({ seat: e.seat, combo: e.combo });
+        this.history.push({ seat: e.seat, combo: e.combo, lead: !this.lastPlay });
         this.lastPlay = { seat: e.seat, combo: e.combo };
         break;
       }
