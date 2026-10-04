@@ -12,6 +12,10 @@ import type { PlayerInfo, ServerMsg } from '@shared/protocol';
 const BASE_W = 1280;
 const BASE_H = 750;
 
+// 加载页（index.html 内嵌）：脚本已加载，接下来等牌桌渲染引擎初始化
+const loader = (window as unknown as { gdLoader?: { set(v: number, next?: number): void; done(): void } }).gdLoader;
+loader?.set(40, 80);
+
 // 尽早唤醒联机服务（Render 免费版会休眠）
 wakeServer();
 // 补传本地保存的复盘日志（服务端重启后会丢失，按局编号去重）
@@ -36,6 +40,8 @@ const appReady = app.init({
   ready = true;
   relayout();
 });
+// 渲染引擎就绪、字体加载完再进入登录页
+void appReady.then(() => { loader?.set(85, 96); return document.fonts?.ready; }).catch(() => undefined).then(() => loader?.done());
 
 let scene: TableScene | null = null;
 let game: GameClient | null = null;
@@ -81,6 +87,18 @@ const store = {
   },
 };
 nick.value = store.get('gd_nick') ?? '';
+
+// ---------- 登录页风格：温润蛋壳 / 清新青绿 / 深色极简 ----------
+const SKIN_COLOR: Record<string, string> = { warm: '#f6e8d3', mint: '#dcefe8', dark: '#0f2925' };
+function applySkin(skin: string) {
+  if (!(skin in SKIN_COLOR)) skin = 'warm';
+  document.documentElement.dataset.skin = skin;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', SKIN_COLOR[skin]);
+  document.querySelectorAll<HTMLButtonElement>('.skin-pick button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.skin === skin)));
+  store.set('gd_skin', skin);
+}
+document.querySelectorAll<HTMLButtonElement>('.skin-pick button').forEach((b) => b.addEventListener('click', () => applySkin(b.dataset.skin!)));
+applySkin(document.documentElement.dataset.skin ?? 'warm');
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 function toast(text: string) {

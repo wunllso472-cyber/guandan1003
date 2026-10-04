@@ -1,36 +1,256 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-skin="warm">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#0b3d23" />
+  <meta name="theme-color" content="#f6e8d3" />
   <title>掼蛋</title>
+  <script>
+    // 尽早应用上次选择的登录页风格，避免先闪一下默认风格
+    (function () {
+      var skin = 'warm';
+      try { skin = localStorage.getItem('gd_skin') || 'warm'; } catch (e) {}
+      if (skin !== 'warm' && skin !== 'mint' && skin !== 'dark') skin = 'warm';
+      document.documentElement.setAttribute('data-skin', skin);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', { warm: '#f6e8d3', mint: '#dcefe8', dark: '#0f2925' }[skin]);
+    })();
+  </script>
+  <style>
+    /* 加载页：只有中间的动态进度条（取自 guandan_progress.html），内嵌在页面里，脚本加载前就能显示 */
+    #loader {
+      --bg: #f7f7f2; --surface: #fdfdf9; --shell: #c9c7b8; --empty: #f0efea; --empty-suit: #c7c8bf;
+      --card-paper: #fcfbf6; --card-border: #ddd9cd; --line: #e2e5dc; --token: #a2ab9e; --soft-green: #eaf0e6;
+      --shadow: 0 18px 36px -24px rgba(40,57,43,.22); --progress: 0%;
+      position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at 50% 45%, #fbfbf3 0%, var(--bg) 62%);
+      transition: opacity .45s ease;
+    }
+    html[data-skin="warm"] #loader { --bg: #f6ecdb; --surface: #fffaf1; --shell: #d6c3a4; --empty: #f3e8d6; --empty-suit: #d3c3a8; --line: #ead9bf; background: radial-gradient(ellipse at 50% 45%, #fdf6ea 0%, #f6ecdb 65%); }
+    html[data-skin="mint"] #loader { --bg: #e3f2ec; --surface: #f9fdfb; --shell: #b7d6ca; --empty: #e6f2ed; --empty-suit: #b9d3c8; --line: #cfe5dc; background: radial-gradient(ellipse at 50% 45%, #f2faf6 0%, #e3f2ec 65%); }
+    html[data-skin="dark"] #loader {
+      --bg: #151f1c; --surface: #1e2b26; --shell: #5c6e5d; --empty: #2c3932; --empty-suit: #637467; --line: #34473c;
+      --card-paper: #e9e9da; --card-border: #c8cdbc; --token: #788d79; --soft-green: #273f31; --shadow: 0 20px 48px -20px rgba(0,0,0,.46);
+      background: radial-gradient(ellipse at 50% 45%, #1d2c27 0%, #121b18 65%);
+    }
+    #loader.done { opacity: 0; pointer-events: none; }
+    #loader .assembly { position: relative; width: min(86vw, 760px); padding: 74px 52px 30px; box-sizing: border-box; }
+    #loader .track { position: relative; height: 80px; }
+    #loader .shell { position: absolute; inset: 0; border: 1.5px solid var(--shell); border-radius: 45px; background: var(--surface); box-shadow: inset 0 0 0 5px var(--bg), var(--shadow); }
+    #loader .window { position: absolute; inset: 9px 10px; overflow: hidden; border-radius: 35px; background: var(--empty); border: 1px solid rgba(129,132,115,.12); }
+    #loader .tiles { position: absolute; inset: 0 -10px; display: grid; grid-template-columns: repeat(13, 1fr); }
+    #loader .tile { min-width: 0; margin-right: -5px; border-radius: 15px; border: 1px solid rgba(255,255,255,.53); border-right-color: rgba(179,179,161,.21); transform: skewX(-15deg); display: grid; place-items: center; background: linear-gradient(145deg,rgba(255,255,255,.57),rgba(255,255,255,0)); }
+    html[data-skin="dark"] #loader .window > .tiles .tile { background: linear-gradient(145deg,rgba(255,255,255,.09),transparent); border-color: rgba(196,221,195,.13); }
+    #loader .tile svg { width: 26px; height: 26px; fill: var(--empty-suit); transform: skewX(15deg); opacity: .8; }
+    #loader .fill { position: absolute; inset: 0; clip-path: inset(0 calc(100% - var(--progress)) 0 0); background: linear-gradient(100deg,#29584b 0%,#367962 45%,#76c39a 100%); }
+    #loader .fill .tile { background: linear-gradient(130deg,rgba(255,255,255,.14),rgba(0,25,17,.12)); border-color: rgba(207,241,216,.4); border-right-color: rgba(20,68,49,.3); }
+    #loader .fill .tile svg { fill: #d6ebd3; opacity: .72; }
+    #loader .sheen { position: absolute; inset: 0; overflow: hidden; }
+    #loader .sheen::after { content: ""; position: absolute; top: 0; left: -40%; width: 30%; height: 100%; background: linear-gradient(100deg,transparent,rgba(255,255,214,.2),transparent); transform: skewX(-15deg); animation: gd-sweep 2.6s ease-in-out infinite; }
+    #loader .edge { position: absolute; top: 5px; bottom: 5px; left: var(--progress); width: 2px; transform: translateX(-50%); border-radius: 2px; background: #f2f3b9; box-shadow: 0 0 6px 1px #e9f3ab, 0 0 19px 5px rgba(230,243,161,.62); }
+    #loader .rail { position: absolute; inset: 0 10px; pointer-events: none; }
+    #loader .marker { position: absolute; left: var(--progress); top: -58px; z-index: 8; width: 84px; margin-left: -42px; text-align: center; }
+    #loader .bubble { position: relative; height: 41px; display: flex; align-items: center; justify-content: center; gap: 1px; border-radius: 24px; color: #fbfff4; background: linear-gradient(115deg,#264b43,#407b60); border: 1px solid rgba(26,66,46,.55); box-shadow: 0 5px 14px -9px rgba(18,55,36,.7); animation: gd-bob 2.4s ease-in-out infinite; }
+    #loader .bubble::after { content: ""; position: absolute; width: 11px; height: 11px; left: calc(50% - 6px); bottom: -5px; border-radius: 1px; transform: rotate(45deg); background: #356450; }
+    #loader .num { font: 500 24px/1 "Avenir Next", Arial, sans-serif; letter-spacing: -.8px; font-variant-numeric: tabular-nums; z-index: 1; }
+    #loader .pct { font-size: 15px; margin-top: 3px; z-index: 1; }
+    #loader .knob { position: absolute; left: var(--progress); top: -2px; width: 22px; height: 22px; transform: translateX(-50%); z-index: 9; border-radius: 50%; border: 3px solid var(--surface); background: linear-gradient(130deg,#7ccfaa,#f7f9bd); box-shadow: 0 0 0 1px rgba(175,191,145,.43), 0 0 17px rgba(192,237,143,.45); box-sizing: border-box; }
+    #loader .deck { position: absolute; z-index: 5; width: 117px; height: 128px; left: -36px; top: -20px; transform: rotate(-1deg) scale(.9); transform-origin: 50% 65%; }
+    #loader .dc { position: absolute; width: 73px; height: 108px; border-radius: 11px; box-shadow: 0 4px 7px rgba(38,65,46,.06); box-sizing: border-box; }
+    #loader .dc.back { left: 8px; top: 18px; transform: rotate(-19deg); background: linear-gradient(140deg,#a5d1b1,#3c8b70); border: 1px solid #72a38b; }
+    #loader .dc.mid { left: 20px; top: 9px; transform: rotate(-8deg); background: linear-gradient(140deg,#f3f8ed,#c5dcc7); border: 1.5px solid #b7cabc; }
+    #loader .dc.front { left: 33px; top: 5px; transform: rotate(16deg); background: var(--card-paper); border: 1.5px solid var(--card-border); display: grid; place-items: center; animation: gd-breathe 3s ease-in-out infinite; }
+    #loader .dc.front svg { width: 34px; height: 34px; fill: #2e5b4a; }
+    #loader .corner { position: absolute; left: 10px; top: 8px; font: 11px Georgia, serif; color: #6a8570; }
+    #loader .corner.b { left: auto; top: auto; right: 10px; bottom: 8px; transform: rotate(180deg); }
+    #loader .token { position: absolute; z-index: 5; right: -37px; top: -12px; width: 104px; height: 104px; border-radius: 50%; background: var(--surface); border: 1.5px solid var(--shell); box-shadow: 0 6px 10px -9px #626857; display: grid; place-items: center; transform: scale(.9); transition: transform .5s cubic-bezier(.22,1,.36,1); }
+    #loader .plate { position: absolute; inset: 9px; background: var(--bg); border: 1px solid var(--card-border); border-radius: 25px; transform: rotate(22deg); }
+    #loader .plate.in { inset: 16px; transform: rotate(-12deg); background: var(--surface); border-color: var(--line); border-radius: 18px; }
+    #loader .crown { width: 38px; height: 38px; fill: var(--token); z-index: 1; transition: fill .4s, transform .5s; }
+    #loader.complete .token { transform: scale(.95) rotate(4deg); border-color: #88b08b; }
+    #loader.complete .crown { fill: #4d8c60; transform: scale(1.1); }
+    @keyframes gd-sweep { 0%,20% { left: -40%; } 80%,100% { left: 115%; } }
+    @keyframes gd-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+    @keyframes gd-breathe { 0%,100% { transform: rotate(16deg) translateY(0); } 50% { transform: rotate(13deg) translateY(-2px); } }
+    @media (max-width: 600px), (max-height: 420px) {
+      #loader .assembly { padding: 64px 30px 24px 28px; }
+      #loader .track { height: 60px; }
+      #loader .window { inset: 6px; border-radius: 27px; }
+      #loader .rail { inset: 0 6px; }
+      #loader .tiles { grid-template-columns: repeat(9, 1fr); inset: 0 -9px; }
+      #loader .tile:nth-child(n+10) { display: none; }
+      #loader .tile { border-radius: 9px; margin-right: -4px; }
+      #loader .tile svg { width: 19px; height: 19px; }
+      #loader .marker { top: -50px; width: 68px; margin-left: -34px; }
+      #loader .bubble { height: 34px; }
+      #loader .num { font-size: 20px; }
+      #loader .knob { width: 18px; height: 18px; border-width: 2px; }
+      #loader .deck { transform: scale(.66); transform-origin: 0 0; left: -22px; top: -10px; }
+      #loader .token { transform: scale(.62); transform-origin: 100% 0; right: -24px; top: -6px; }
+      #loader.complete .token { transform: scale(.66) rotate(4deg); }
+    }
+    @media (prefers-reduced-motion: reduce) { #loader *, #loader *::after { animation: none !important; } }
+  </style>
   <link rel="stylesheet" href="./src/style.css" />
 </head>
 <body>
+  <!-- 加载页 -->
+  <div id="loader" role="progressbar" aria-label="正在加载" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+      <symbol id="ld-spade" viewBox="0 0 24 24"><path d="M12 1.7C9.9 5.3 3 8.6 3 13.3c0 3.8 4.7 5.4 7.6 2.6-.2 2.2-1.1 3.7-2.6 5.2h8c-1.5-1.5-2.4-3-2.6-5.2 2.9 2.8 7.6 1.2 7.6-2.6C21 8.6 14.1 5.3 12 1.7Z"/></symbol>
+      <symbol id="ld-heart" viewBox="0 0 24 24"><path d="M12 21S2 14.6 2 8.1C2 2.8 8.9.5 12 6c3.1-5.5 10-3.2 10 2.1C22 14.6 12 21 12 21Z"/></symbol>
+      <symbol id="ld-diamond" viewBox="0 0 24 24"><path d="M12 1.4 21.1 12 12 22.6 2.9 12Z"/></symbol>
+      <symbol id="ld-club" viewBox="0 0 24 24"><path d="M12 2a4.6 4.6 0 0 0-3.6 7.5 4.7 4.7 0 1 0 2.3 7c-.2 1.8-.8 3.3-2.5 4.8h7.6c-1.7-1.5-2.3-3-2.5-4.8a4.7 4.7 0 1 0 2.3-7A4.6 4.6 0 0 0 12 2Z"/></symbol>
+      <symbol id="ld-crown" viewBox="0 0 48 48"><path d="m7 15 10 8 7-15 7 15 10-8-5 21H12L7 15Zm6 25h22v4H13z"/><circle cx="6" cy="12" r="3"/><circle cx="24" cy="5" r="3"/><circle cx="42" cy="12" r="3"/></symbol>
+    </defs></svg>
+    <div class="assembly">
+      <div class="track">
+        <div class="shell"></div>
+        <div class="window">
+          <div class="tiles" id="ld-base"></div>
+          <div class="fill"><div class="tiles" id="ld-fill"></div><div class="sheen"></div></div>
+          <div class="edge"></div>
+        </div>
+        <div class="deck" aria-hidden="true">
+          <div class="dc back"></div><div class="dc mid"></div>
+          <div class="dc front"><span class="corner">A</span><svg><use href="#ld-spade"/></svg><span class="corner b">A</span></div>
+        </div>
+        <div class="token" aria-hidden="true"><div class="plate"></div><div class="plate in"></div><svg class="crown"><use href="#ld-crown"/></svg></div>
+        <div class="rail" aria-hidden="true">
+          <div class="marker"><div class="bubble"><span class="num" id="ld-num">0</span><span class="pct">%</span></div></div>
+          <div class="knob"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // 加载进度：页面脚本、牌桌渲染、字体等真实步骤通过 gdLoader.set() 推进；
+    // 等待期间缓慢自动前进（不超过下一步的上限），保持动态；gdLoader.done() 到 100% 后淡出。
+    (function () {
+      var el = document.getElementById('loader');
+      var suits = ['spade', 'heart', 'diamond', 'club'];
+      ['ld-base', 'ld-fill'].forEach(function (id) {
+        var box = document.getElementById(id), html = '';
+        for (var i = 0; i < 13; i++) html += '<div class="tile"><svg><use href="#ld-' + suits[i % 4] + '"/></svg></div>';
+        box.innerHTML = html;
+      });
+      var num = document.getElementById('ld-num');
+      var shown = 0, target = 8, cap = 30, finished = false, start = Date.now(), last = 0;
+      function frame(now) {
+        var dt = Math.min(80, now - (last || now)); last = now;
+        if (target < cap) target = Math.min(cap, target + dt * 0.012);
+        shown += (target - shown) * Math.min(1, dt / 160);
+        if (finished && target - shown < 0.4) shown = 100;
+        el.style.setProperty('--progress', shown.toFixed(2) + '%');
+        var n = Math.floor(shown);
+        num.textContent = n;
+        el.setAttribute('aria-valuenow', n);
+        if (shown >= 100) { finish(); return; }
+        requestAnimationFrame(frame);
+      }
+      var closing = false;
+      function finish() {
+        if (closing) return;
+        closing = true;
+        el.style.setProperty('--progress', '100%');
+        num.textContent = '100';
+        el.classList.add('complete');
+        setTimeout(function () { el.classList.add('done'); setTimeout(function () { el.remove(); }, 500); }, 350);
+      }
+      requestAnimationFrame(frame);
+      window.gdLoader = {
+        /** 推进到 v%，之后自动缓慢前进，不超过 next% */
+        set: function (v, next) { target = Math.max(target, v); cap = Math.max(cap, next || v); },
+        /** 加载完成：至少显示 0.8 秒，避免一闪而过 */
+        done: function () {
+          setTimeout(function () {
+            finished = true; target = 100; cap = 100;
+            // 动画帧可能被暂停（后台标签页等），到时间直接收尾
+            setTimeout(finish, 1500);
+          }, Math.max(0, 800 - (Date.now() - start)));
+        },
+      };
+      // 兜底：脚本出错时最多 12 秒后也进入登录页
+      setTimeout(function () { window.gdLoader.done(); }, 12000);
+    })();
+  </script>
+
   <div id="game"></div>
   <div id="lobby">
-    <div class="lobby-card">
-      <div class="logo"><span>掼</span><span>蛋</span></div>
-      <div class="sub">经典四人掼蛋 · 两副牌 · 逢人配</div>
-      <label class="field">
-        <span>昵称</span>
-        <input id="nick" maxlength="8" placeholder="输入你的昵称" autocomplete="off" />
-      </label>
-      <div id="join-invite" class="hidden">
-        <button id="btn-invite" class="btn primary">加入好友房间 <b id="invite-code"></b></button>
+    <!-- 背景装饰：全部为 CSS 与内嵌 SVG，不依赖外部图片 -->
+    <div class="lobby-bg" aria-hidden="true">
+      <div class="egg-halo"></div>
+      <svg class="clouds" viewBox="0 0 1200 400" preserveAspectRatio="xMidYMin slice">
+        <g class="cloud"><ellipse cx="170" cy="120" rx="150" ry="46"/><ellipse cx="260" cy="96" rx="96" ry="48"/><ellipse cx="110" cy="104" rx="70" ry="36"/></g>
+        <g class="cloud"><ellipse cx="1000" cy="80" rx="160" ry="42"/><ellipse cx="1080" cy="58" rx="90" ry="40"/></g>
+      </svg>
+      <svg class="hills" viewBox="0 0 1200 400" preserveAspectRatio="none">
+        <path class="h1" d="M0 230 C 180 160 320 200 470 250 S 820 330 1000 260 S 1150 210 1200 220 V400 H0Z"/>
+        <path class="h2" d="M0 300 C 220 250 380 300 560 320 S 900 300 1060 330 S 1170 340 1200 330 V400 H0Z"/>
+        <path class="stroke s1" d="M-20 250 C 160 180 330 220 480 270 S 820 350 1010 280 S 1160 230 1220 240"/>
+        <path class="stroke s2" d="M-20 330 C 200 280 380 320 560 345 S 900 320 1220 350"/>
+        <path class="stroke s3" d="M-20 190 C 140 150 260 170 360 210"/>
+      </svg>
+      <svg class="leaves left" viewBox="0 0 260 300">
+        <path class="lf a" d="M60 300 C 40 220 60 150 130 90 C 140 170 110 240 60 300Z"/>
+        <path class="lf b" d="M40 300 C 0 250 -10 190 20 130 C 60 190 70 250 40 300Z"/>
+        <path class="lf c" d="M90 300 C 120 240 170 210 240 200 C 210 260 160 290 90 300Z"/>
+        <path class="vein" d="M60 300 C 80 230 100 160 130 90 M40 300 C 30 240 25 190 20 130 M90 300 C 140 255 190 225 240 200"/>
+      </svg>
+      <svg class="leaves right" viewBox="0 0 260 300">
+        <path class="lf a" d="M200 300 C 220 220 200 150 130 90 C 120 170 150 240 200 300Z"/>
+        <path class="lf b" d="M220 300 C 260 250 270 190 240 130 C 200 190 190 250 220 300Z"/>
+        <path class="lf c" d="M170 300 C 140 240 90 210 20 200 C 50 260 100 290 170 300Z"/>
+        <path class="vein" d="M200 300 C 180 230 160 160 130 90 M220 300 C 230 240 235 190 240 130 M170 300 C 120 255 70 225 20 200"/>
+      </svg>
+      <div class="moon"></div>
+    </div>
+
+    <div class="lobby-stage">
+      <div class="lobby-card">
+        <!-- 卡片右上角：飞出的扑克牌；清新风格加一个扔牌的小蛋人 -->
+        <div class="fling" aria-hidden="true">
+          <svg class="trail" viewBox="0 0 160 80"><path d="M4 60 C 40 40 80 30 150 20"/><path d="M14 74 C 50 56 90 46 150 38"/><path d="M30 46 C 60 30 96 20 140 8"/></svg>
+          <div class="mini c1"><span>♠</span></div>
+          <div class="mini c2"><span class="r">♥</span></div>
+          <div class="mini c3"><span class="r">♦</span></div>
+          <div class="mini c4"><span>♣</span></div>
+          <svg class="egg-buddy" viewBox="0 0 120 150">
+            <path class="limb" d="M30 70 C 18 56 14 44 18 32 M90 74 C 104 66 110 56 108 44 M48 120 C 44 132 38 140 30 142 M74 120 C 80 132 88 138 98 138"/>
+            <ellipse class="egg" cx="60" cy="80" rx="34" ry="44"/>
+            <circle class="eye" cx="49" cy="72" r="3.6"/><circle class="eye" cx="70" cy="72" r="3.6"/>
+            <ellipse class="blush" cx="42" cy="84" rx="6" ry="3.5"/><ellipse class="blush" cx="78" cy="84" rx="6" ry="3.5"/>
+            <path class="mouth" d="M52 86 Q 60 96 68 86"/>
+          </svg>
+        </div>
+        <div class="logo"><span>掼</span><span>蛋</span></div>
+        <div class="sub">经典四人掼蛋 · 两副牌 · 逢人配</div>
+        <label class="field">
+          <span>昵称</span>
+          <input id="nick" maxlength="8" placeholder="输入你的昵称" autocomplete="off" />
+        </label>
+        <div id="join-invite" class="hidden">
+          <button id="btn-invite" class="btn primary">加入好友房间 <b id="invite-code"></b></button>
+        </div>
+        <div class="row">
+          <button id="btn-create" class="btn primary">创建房间</button>
+          <button id="btn-solo" class="btn">单机练习</button>
+        </div>
+        <div class="join-row">
+          <input id="room-code" inputmode="numeric" maxlength="6" placeholder="输入 6 位房间号" autocomplete="off" />
+          <button id="btn-join" class="btn small">加入</button>
+        </div>
+        <div class="tip">建议横屏游玩，体验更佳</div>
       </div>
-      <div class="row">
-        <button id="btn-create" class="btn primary">创建房间</button>
-        <button id="btn-solo" class="btn">单机练习</button>
-      </div>
-      <div class="join-row">
-        <input id="room-code" inputmode="numeric" maxlength="6" placeholder="输入 6 位房间号" autocomplete="off" />
-        <button id="btn-join" class="btn small">加入</button>
-      </div>
-      <div class="tip">建议横屏游玩，体验更佳</div>
+    </div>
+
+    <!-- 风格切换 -->
+    <div class="skin-pick" role="radiogroup" aria-label="界面风格">
+      <button type="button" data-skin="warm" role="radio" aria-label="温润蛋壳" title="温润蛋壳"><i></i><b>温润蛋壳</b></button>
+      <button type="button" data-skin="mint" role="radio" aria-label="清新青绿" title="清新青绿"><i></i><b>清新青绿</b></button>
+      <button type="button" data-skin="dark" role="radio" aria-label="深色极简" title="深色极简"><i></i><b>深色极简</b></button>
     </div>
   </div>
   <div id="room" class="hidden"></div>
