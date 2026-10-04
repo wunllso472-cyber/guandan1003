@@ -12,7 +12,7 @@ import { aiPlay } from '../shared/ai';
 import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
-import { monteCarlo, mcStateFrom } from '../shared/mc';
+import { monteCarlo, monteCarloShallow, mcStateFrom } from '../shared/mc';
 import { writeFileSync } from 'node:fs';
 
 const MC_K = Number(process.env.GD_MC_K ?? 4);
@@ -22,6 +22,10 @@ const MC_MAXCARDS = Number(process.env.GD_MC_MAXCARDS ?? 40);
 /** 模拟结果比顾问首选好出这么多，才推翻首选 */
 const MC_MARGIN = Number(process.env.GD_MC_MARGIN ?? 0.25);
 const MC_POLICY = (process.env.GD_MC_POLICY ?? 'ai') as 'ai' | 'quick';
+/** 中盘也模拟（浅层推演 + 局面评分）：GD_MC_MID=1 */
+const MC_MID = process.env.GD_MC_MID === '1';
+const MC_MID_SAMPLES = Number(process.env.GD_MC_MID_SAMPLES ?? 30);
+const MC_MID_MARGIN = Number(process.env.GD_MC_MID_MARGIN ?? 0.2);
 
 export type Strategy = 'ai' | 'advisor' | 'jev' | 'mc';
 type Ctx = { seat: number; g: GuandanGame; tracker: CardTracker };
@@ -41,6 +45,13 @@ async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Co
     let best = 0;
     r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
     return r.scores[best] - r.scores[0] >= MC_MARGIN ? top[best].combo : top[0].combo;
+  }
+  if (strategy === 'mc' && MC_MID && adv.options.length > 1) {
+    const top = adv.options.slice(0, MC_K);
+    const r = monteCarloShallow(mcStateFrom(inp), top.map((o) => o.combo), 1e9, MC_MID_SAMPLES, g.roundNo * 1000 + g.hands[seat].length);
+    let best = 0;
+    r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
+    return r.scores[best] - r.scores[0] >= MC_MID_MARGIN ? top[best].combo : top[0].combo;
   }
   if (strategy === 'jev' && adv.options.length > 1) {
     const { adviseDirect } = await import('../server/jev');

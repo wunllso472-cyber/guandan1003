@@ -181,3 +181,111 @@ export function mcStateFrom(inp: {
     partnerHand: inp.partnerHand ?? null,
   };
 }
+
+// ---------------- 中盘：浅层模拟 + 局面评分 ----------------
+
+/** 局面特征名称（与 EVAL_WEIGHTS 一一对应，常数项除外） */
+export const EVAL_FEATURES = [
+  '下一手由我方先出（+1）或对方先出（-1）',
+  '对方最快的人还要几手 - 我方最快的人还要几手',
+  '对方合计手数 - 我方合计手数',
+  '我方炸弹数 - 对方炸弹数',
+  '我方已出完人数 - 对方已出完人数',
+  '头游属于我方（+1）/ 对方（-1）/ 还没有（0）',
+  '对方最快的人剩几张 - 我方最快的人剩几张',
+  '对方较慢的人还要几手 - 我方较慢的人还要几手',
+  '对方较慢的人剩几张 - 我方较慢的人剩几张',
+];
+
+/** 由 scripts/fit-eval.ts 拟合得到（3000 局电脑对局、78554 个局面，R² = 0.52；第二版加入“较慢的人”特征）：[常数项, ...各特征权重]，预测该队本局净升级 */
+export const EVAL_WEIGHTS = [0, 0.3651, -0.0107, 0.3298, 0.437, 0.6799, 0.6799, 0.0139, -0.236, 0.0061];
+
+/** 从 team 的视角计算局面特征；leader 是下一手首出的座位 */
+export function evalFeatures(hands: number[][], level: number, team: number, leader: number, finishOrder: number[]): number[] {
+  const hs = hands.map((h) => (h.length ? bestSplit(h, level).combos : []));
+  const handsOf = (s: number) => hs[s].filter((c) => !isBomb(c)).length;
+  const bombsOf = (s: number) => hs[s].filter(isBomb).length;
+  const members = (t: number) => [0, 1, 2, 3].filter((s) => s % 2 === t);
+  const stat = (t: number) => {
+    const act = members(t).filter((s) => hands[s].length > 0);
+    return {
+      minH: act.length < 2 ? (act.length ? Math.min(...act.map(handsOf)) : 0) : Math.min(...act.map(handsOf)),
+      sumH: act.reduce((a, s) => a + handsOf(s), 0),
+      bombs: act.reduce((a, s) => a + bombsOf(s), 0),
+      done: members(t).filter((s) => finishOrder.includes(s)).length,
+      minN: act.length ? Math.min(...act.map((s) => hands[s].length)) : 0,
+      // 较慢的那个人：双上、少被双下取决于他（已出完的人记 0）
+      maxH: act.length ? Math.max(...act.map(handsOf)) : 0,
+      maxN: act.length ? Math.max(...act.map((s) => hands[s].length)) : 0,
+    };
+  };
+  const us = stat(team), them = stat(1 - team);
+  const first = finishOrder.length ? (finishOrder[0] % 2 === team ? 1 : -1) : 0;
+  return [
+    leader % 2 === team ? 1 : -1,
+    them.minH - us.minH,
+    them.sumH - us.sumH,
+    us.bombs - them.bombs,
+    us.done - them.done,
+    first,
+    them.minN - us.minN,
+    them.maxH - us.maxH,
+    them.maxN - us.maxN,
+  ];
+}
+
+export function evalPosition(hands: number[][], level: number, team: number, leader: number, finishOrder: number[]): number {
+  const f = evalFeatures(hands, level, team, leader, finishOrder);
+  return f.reduce((s, v, i) => s + v * EVAL_WEIGHTS[i + 1], EVAL_WEIGHTS[0]);
+}
+
+/** 浅层推演：执行候选出法后，用简化出牌推演到这一轮结束，再给局面打分（本局已结束则用真实结果） */
+function shallowRollout(st: MCState, hands: number[][], move: Combo | null): number {
+  const g = new GuandanGame();
+  g.levels = [st.level, st.level];
+  g.levelTeam = 0;
+  g.phase = 'play';
+  g.hands = hands.map((h) => [...h]);
+  g.finishOrder = [...st.finishOrder];
+  g.turn = st.seat;
+  g.lastPlay = st.lastPlay ? { seat: st.lastPlay.seat, combo: st.lastPlay.combo } : null;
+  g.passCount = st.passCount;
+  let result: number | null = null;
+  let trickOver = false;
+  g.on((e) => {
+    if (e.type === 'roundEnd') {
+      const o = e.result.order;
+      const up = [0, 3, 2, 1][o.indexOf(partnerOf(o[0]))];
+      result = teamOf(o[0]) === teamOf(st.seat) ? up : -up;
+    }
+    if (e.type === 'trickEnd') trickOver = true;
+  });
+  const err = move ? g.play(st.seat, move.cards, move) : g.pass(st.seat);
+  if (err) return NaN;
+  let guard = 0;
+  while (g.phase === 'play' && !trickOver && guard++ < 40) {
+    const s = g.turn;
+    const c = quickPlay(g, s);
+    const e = c ? g.play(s, c.cards, c) : g.pass(s);
+    if (e) { if (g.lastPlay) g.pass(s); else g.play(s, [g.hands[s][0]]); }
+  }
+  if (result !== null) return result;
+  return evalPosition(g.hands, st.level, teamOf(st.seat), g.turn, g.finishOrder);
+}
+
+/** 中盘模拟：同一批推测出的牌局上比较各候选（浅层推演 + 局面评分） */
+export function monteCarloShallow(st: MCState, moves: (Combo | null)[], budgetMs = 800, maxSamples = 100, seed = 1): MCResult {
+  const t0 = Date.now();
+  const sums = moves.map(() => 0);
+  let n = 0;
+  for (let k = 0; k < maxSamples * 3 && n < maxSamples; k++) {
+    if (Date.now() - t0 > budgetMs && n >= 8) break;
+    const hands = determinize(st, seed + k);
+    if (!hands) continue;
+    const vals = moves.map((m) => shallowRollout(st, hands, m));
+    if (vals.some((v) => Number.isNaN(v))) continue;
+    vals.forEach((v, i) => (sums[i] += v));
+    n++;
+  }
+  return { scores: sums.map((s) => (n ? s / n : 0)), samples: n };
+}
