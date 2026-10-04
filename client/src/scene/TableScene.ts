@@ -6,6 +6,7 @@ import { CardTracker } from '@shared/tracker';
 import { advise, buildJevContext, type AdviceOption } from '@shared/advisor';
 import { preferLooseCards } from '@shared/ai';
 import { mcStateFrom } from '@shared/mc';
+import { MC_K, MC_MAXCARDS, mcConfigFor, pickByMC } from '@shared/autoplay';
 import { runMonteCarlo } from '../game/mcClient';
 import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable } from '../gfx/textures';
 import { tween, ease, wait } from '../gfx/tween';
@@ -28,10 +29,8 @@ const JEV_TIMEOUT_MS = 2000;
  * - 开局和中盘：模拟到本轮结束，再用自我对打拟合的局面评分估计团队结果。
  *   加上中盘后 1002 局对打：每局净升级 +0.67，胜局率 66%，被双下率 16%（比只在残局模拟多 +0.35）。
  */
-const MC_MAXCARDS = 40;
-const MC_K = 4;
-const MC_END = { mode: 'full', samples: 40, budgetMs: 1000, minSamples: 15, margin: 0.25, label: '残局' } as const;
-const MC_MID = { mode: 'shallow', samples: 30, budgetMs: 1500, minSamples: 12, margin: 0.4, label: '牌局' } as const;
+// 参数与托管共用（shared/autoplay.ts）；提示在后台线程里算，时间预算可以比托管长
+const MC_BUDGET_MS = { full: 1000, shallow: 1500 } as const;
 /** Jev 置信度低于此值时不采用它的排序（300 局评估：0.6 时升级数比原电脑多约 13%；0.35 时双上明显减少） */
 const JEV_MIN_CONFIDENCE = 0.6;
 
@@ -566,20 +565,19 @@ export class TableScene extends Container {
       const stale = () => this.destroyed || serial !== this.turnSerial || !this.myTurn;
 
       if (opts.length > 1) {
-        const cfg = onTable <= MC_MAXCARDS ? MC_END : MC_MID;
+        const cfg = mcConfigFor(g.handCounts());
         this.hintBusy = true;
         this.hintBtn.text = '推演中…';
         const top = opts.slice(0, MC_K);
-        const r = await runMonteCarlo(mcStateFrom(input), top.map((o) => o.combo), cfg.budgetMs, cfg.samples, cfg.mode);
+        const r = await runMonteCarlo(mcStateFrom(input), top.map((o) => o.combo), MC_BUDGET_MS[cfg.mode], cfg.samples, cfg.mode);
         this.hintBusy = false;
         if (this.destroyed) return;
         this.hintBtn.text = '提示';
         if (stale()) return;
-        if (r && r.samples >= cfg.minSamples) {
-          let best = 0;
-          r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
-          const gain = r.scores[best] - r.scores[0];
-          if (best !== 0 && gain >= cfg.margin) {
+        const pick = pickByMC(r, cfg);
+        if (r && pick) {
+          const { best, gain } = pick;
+          if (best !== 0) {
             const pick = { ...top[best], reasons: [`模拟了 ${r.samples} 种${cfg.label}，这样出平均多赢 ${gain.toFixed(1)} 级`, ...top[best].reasons] };
             opts = [pick, ...opts.filter((o) => o !== top[best])];
           } else {

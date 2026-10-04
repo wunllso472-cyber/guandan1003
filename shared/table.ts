@@ -2,6 +2,8 @@
 // 单机（浏览器内）和联机（服务端）共用。
 import { GuandanGame, type GameEvent, type RoundResult } from './game';
 import { aiPlay, returnCard, hintOptions } from './ai';
+import { smartPlay } from './autoplay';
+import { CardTracker } from './tracker';
 import { isBomb, type Combo } from './combo';
 import { validateChat, CHAT_COOLDOWN_MS, type ChatKind, type ChatMsg } from './chat';
 
@@ -24,6 +26,13 @@ export class Table {
   lastResult: RoundResult | null = null;
   /** 调试用：时间倍率 */
   speed = 1;
+  /**
+   * 托管（含超时代打）用“提示”的策略时，每手蒙特卡洛模拟的时间预算（毫秒）。
+   * 模拟在当前线程同步执行，单机会短暂占用浏览器、联机会占用服务端，所以预算要小；0 表示只用顾问。
+   */
+  autoBudgetMs = 300;
+  /** 每个座位视角的记牌器（只用该座位能知道的公开信息），托管决策用 */
+  private trackers = [0, 1, 2, 3].map((s) => new CardTracker(s));
 
   private timeouts = [0, 0, 0, 0];
   private timers: ReturnType<typeof setTimeout>[] = [];
@@ -140,6 +149,7 @@ export class Table {
   }
 
   private handle(e: GameEvent) {
+    for (const t of this.trackers) t.apply(e);
     if (e.type === 'roundStart') { this.roundStartAt = Date.now(); this.lastResult = null; }
     if (e.type === 'roundEnd') {
       this.lastResult = e.result;
@@ -218,10 +228,20 @@ export class Table {
   private aiAct(seat: number) {
     const g = this.game;
     if (g.phase !== 'play' || g.turn !== seat) return;
-    const c = aiPlay({
-      seat, hand: g.hands[seat], level: g.level,
-      target: g.lastPlay?.combo ?? null, targetSeat: g.lastPlay?.seat ?? null, handCounts: g.handCounts(),
-    });
+    const target = g.lastPlay?.combo ?? null, targetSeat = g.lastPlay?.seat ?? null;
+    let c: Combo | null;
+    if (this.isAI[seat]) {
+      // 电脑座位保持原来的出牌方式（不改变对手难度）
+      c = aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
+    } else {
+      // 玩家托管或超时：与“提示”相同的策略
+      try {
+        c = smartPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker: this.trackers[seat] }, this.autoBudgetMs);
+      } catch (err) {
+        console.error('托管策略出错，改用电脑出牌', err);
+        c = aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
+      }
+    }
     const err = c ? g.play(seat, c.cards, c) : g.pass(seat);
     if (err) {
       // 兜底：不应发生，避免卡死

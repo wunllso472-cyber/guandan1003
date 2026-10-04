@@ -3,6 +3,7 @@
 // 用法：npx tsx scripts/bench.ts <A策略> <B策略> [局数] [起始种子]
 //   策略：ai（原电脑） | advisor（本地提示第一推荐） | jev（Jev 推荐，置信度不足时用本地提示；会消耗 Jev 额度）
 //         | mc（蒙特卡洛：顾问前 GD_MC_K 个候选各模拟 GD_MC_SAMPLES 种牌局，选团队结果最好的）
+//         | auto（托管：shared/autoplay.ts 的 smartPlay，每手模拟时间预算 GD_AUTO_BUDGET 毫秒，默认 300）
 //   例：npx tsx scripts/bench.ts advisor ai 2000
 //
 // 每副牌两队交换座位各打一次（配对比较），抵消牌运差异。
@@ -13,6 +14,7 @@ import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
 import { monteCarlo, monteCarloShallow, mcStateFrom } from '../shared/mc';
+import { smartPlay } from '../shared/autoplay';
 import { writeFileSync } from 'node:fs';
 
 const MC_K = Number(process.env.GD_MC_K ?? 4);
@@ -27,7 +29,8 @@ const MC_MID = process.env.GD_MC_MID === '1';
 const MC_MID_SAMPLES = Number(process.env.GD_MC_MID_SAMPLES ?? 30);
 const MC_MID_MARGIN = Number(process.env.GD_MC_MID_MARGIN ?? 0.2);
 
-export type Strategy = 'ai' | 'advisor' | 'jev' | 'mc';
+export type Strategy = 'ai' | 'advisor' | 'jev' | 'mc' | 'auto';
+const AUTO_BUDGET = Number(process.env.GD_AUTO_BUDGET ?? 300);
 type Ctx = { seat: number; g: GuandanGame; tracker: CardTracker };
 
 const JEV_MIN_CONFIDENCE = 0.6;
@@ -35,6 +38,7 @@ const JEV_MIN_CONFIDENCE = 0.6;
 async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Combo | null> {
   const target = g.lastPlay?.combo ?? null, targetSeat = g.lastPlay?.seat ?? null;
   if (strategy === 'ai') return aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
+  if (strategy === 'auto') return smartPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker }, AUTO_BUDGET);
   const inp = { seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker };
   const adv = advise(inp);
   const onTable = g.handCounts().reduce((a, b) => a + b, 0);
