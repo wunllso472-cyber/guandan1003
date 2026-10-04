@@ -253,6 +253,11 @@ export class Room {
       }
       return;
     }
+    if (e.type === 'decision') {
+      // 决策依据里有该座位的手牌，只发给本人
+      this.sendSeat(e.seat, { t: 'ev', e });
+      return;
+    }
     if (e.type === 'deadline') {
       this.broadcastEvent({ type: 'deadline', seat: e.seat, left: e.until - Date.now() });
       return;

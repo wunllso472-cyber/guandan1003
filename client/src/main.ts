@@ -3,6 +3,7 @@ import { TableScene } from './scene/TableScene';
 import { LocalGame } from './game/LocalGame';
 import type { GameClient } from './game/types';
 import { Connection, wakeServer } from './net/Connection';
+import { syncReviewLogs } from './game/reviewLog';
 import { NetGame } from './net/NetGame';
 import { RoomUI } from './net/RoomUI';
 import { sound } from './audio/Sound';
@@ -13,6 +14,8 @@ const BASE_H = 750;
 
 // 尽早唤醒联机服务（Render 免费版会休眠）
 wakeServer();
+// 补传本地保存的复盘日志（服务端重启后会丢失，按局编号去重）
+setTimeout(syncReviewLogs, 3000);
 
 // world 承载横屏的设计坐标系；竖屏时整体旋转 90°，保证始终横屏显示
 const world = new Container();

@@ -2,7 +2,7 @@
 // 单机（浏览器内）和联机（服务端）共用。
 import { GuandanGame, type GameEvent, type RoundResult } from './game';
 import { aiPlay, returnCard, hintOptions } from './ai';
-import { smartPlay } from './autoplay';
+import { smartDecide, type DecisionLog } from './autoplay';
 import { CardTracker } from './tracker';
 import { isBomb, type Combo } from './combo';
 import { validateChat, CHAT_COOLDOWN_MS, type ChatKind, type ChatMsg } from './chat';
@@ -15,6 +15,8 @@ export type TableEvent =
   | GameEvent
   | { type: 'deadline'; seat: number; until: number }
   | { type: 'auto'; seat: number; on: boolean }
+  /** 托管/超时代打的决策依据（联机只发给该座位本人） */
+  | { type: 'decision'; seat: number; d: DecisionLog }
   | ({ type: 'chat' } & ChatMsg);
 
 export class Table {
@@ -225,7 +227,7 @@ export class Table {
     }
   }
 
-  private aiAct(seat: number) {
+  private aiAct(seat: number, source: DecisionLog['source'] = 'auto') {
     const g = this.game;
     if (g.phase !== 'play' || g.turn !== seat) return;
     const target = g.lastPlay?.combo ?? null, targetSeat = g.lastPlay?.seat ?? null;
@@ -236,7 +238,10 @@ export class Table {
     } else {
       // 玩家托管或超时：与“提示”相同的策略
       try {
-        c = smartPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker: this.trackers[seat] }, this.autoBudgetMs);
+        const r = smartDecide({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker: this.trackers[seat] }, this.autoBudgetMs, source);
+        c = r.combo;
+        // 先发决策依据，再出牌：复盘日志能把依据挂到这手牌上
+        if (r.log) this.emit({ type: 'decision', seat, d: r.log });
       } catch (err) {
         console.error('托管策略出错，改用电脑出牌', err);
         c = aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
@@ -257,6 +262,6 @@ export class Table {
       this.auto[seat] = true;
       this.emit({ type: 'auto', seat, on: true });
     }
-    this.aiAct(seat);
+    this.aiAct(seat, this.auto[seat] ? 'auto' : 'timeout');
   }
 }

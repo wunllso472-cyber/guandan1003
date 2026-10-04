@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Room } from './room';
 import { getAdvice, warmUp } from './jev';
+import { handleLogs } from './logs';
 import type { ClientMsg, ServerMsg } from '../shared/protocol';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -25,6 +26,7 @@ const MIME: Record<string, string> = {
 const http = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/healthz') { res.end('ok'); return; }
+  if (url.pathname === '/logs') { handleLogs(req, res, url); return; }
   if (url.pathname === '/version') {
     // RENDER_GIT_COMMIT 由 Render 在部署时自动提供，用于核对线上运行的代码版本
     res.writeHead(200, { 'content-type': 'application/json' });

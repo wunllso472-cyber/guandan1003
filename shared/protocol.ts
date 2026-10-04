@@ -2,6 +2,7 @@
 import type { Combo, ComboType } from './combo';
 import type { GameEvent, Phase, RoundResult } from './game';
 import type { ChatKind, ChatMsg } from './chat';
+import type { DecisionLog } from './autoplay';
 
 export type Voice = 'male' | 'female';
 
@@ -33,6 +34,8 @@ export type NetEvent =
   /** 自己出完后看到的对家手牌 */
   | { type: 'reveal'; seat: number; cards: number[] }
   | { type: 'nextWait'; waiting: number[] }
+  /** 自己托管/超时代打时的决策依据（只发给本人） */
+  | { type: 'decision'; seat: number; d: DecisionLog }
   | ({ type: 'chat' } & ChatMsg);
 
 /** 断线重连时的完整状态 */

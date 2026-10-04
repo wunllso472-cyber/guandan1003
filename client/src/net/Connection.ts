@@ -21,6 +21,13 @@ function wsUrl(): string {
   return `${proto}://${location.host}/ws`;
 }
 
+/** 复盘日志上传地址（服务端 /logs）；本地开发没有单独的服务端地址时用同域名 */
+export function logsUrl(): string {
+  const env = import.meta.env.VITE_WS_URL as string | undefined;
+  if (env) return env.replace(/^ws/, 'http').replace(/\/ws\/?$/, '/logs');
+  return typeof location === 'undefined' ? '' : `${location.origin}/logs`;
+}
+
 /** 唤醒服务端：Render 免费版闲置后会休眠，页面打开时先发个请求让它提前启动 */
 export function wakeServer() {
   const env = import.meta.env.VITE_WS_URL as string | undefined;

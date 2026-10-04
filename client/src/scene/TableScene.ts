@@ -6,7 +6,8 @@ import { CardTracker } from '@shared/tracker';
 import { advise, buildJevContext, type AdviceOption } from '@shared/advisor';
 import { preferLooseCards } from '@shared/ai';
 import { mcStateFrom } from '@shared/mc';
-import { MC_K, MC_MAXCARDS, mcConfigFor, pickByMC } from '@shared/autoplay';
+import { MC_K, MC_MAXCARDS, decisionLog, mcConfigFor, pickByMC } from '@shared/autoplay';
+import { ReviewLogger } from '../game/reviewLog';
 import { runMonteCarlo } from '../game/mcClient';
 import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable } from '../gfx/textures';
 import { tween, ease, wait } from '../gfx/tween';
@@ -76,6 +77,8 @@ export class TableScene extends Container {
   private turnSerial = 0;
   /** 记牌器：从自己的视角记录公开信息 */
   private tracker: CardTracker;
+  /** 复盘日志（上传服务端供开发者复盘） */
+  private reviewLog: ReviewLogger;
   private reasonText: Text;
   private myTurn = false;
   /** 自己出完后查看对家手牌（只读） */
@@ -91,6 +94,7 @@ export class TableScene extends Container {
       if (this.hand.selected.size) this.hand.clearSelection();
     });
     this.tracker = new CardTracker(client.mySeat);
+    this.reviewLog = new ReviewLogger(client, this.tracker);
     this.reasonText = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 22, fontWeight: '700', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 }, wordWrap: true, wordWrapWidth: 760, align: 'center' } });
     this.reasonText.anchor.set(0.5, 1);
     this.reasonText.alpha = 0;
@@ -255,6 +259,7 @@ export class TableScene extends Container {
     const g = this.client.game;
     const me = this.client.mySeat;
     this.tracker.apply(e as GameEvent);
+    try { this.reviewLog.onEvent(e); } catch (err) { console.warn('复盘日志记录失败', err); }
     switch (e.type) {
       case 'roundStart': {
         this.clearOverlay();
@@ -563,6 +568,7 @@ export class TableScene extends Container {
       const onTable = g.handCounts().reduce((a, x) => a + x, 0);
       const serial = this.turnSerial;
       const stale = () => this.destroyed || serial !== this.turnSerial || !this.myTurn;
+      let hintLog = decisionLog(adv, 'hint', 0, 'advisor');
 
       if (opts.length > 1) {
         const cfg = mcConfigFor(g.handCounts());
@@ -575,6 +581,7 @@ export class TableScene extends Container {
         this.hintBtn.text = '提示';
         if (stale()) return;
         const pick = pickByMC(r, cfg);
+        if (r) hintLog = decisionLog(adv, 'hint', pick?.best ?? 0, !pick ? 'advisor' : pick.best ? 'mc-override' : 'mc', { mode: cfg.mode, samples: r.samples, gain: pick?.gain ?? 0, scores: r.scores });
         if (r && pick) {
           const { best, gain } = pick;
           if (best !== 0) {
@@ -599,10 +606,12 @@ export class TableScene extends Container {
           const pos = new Map(res.ranking.map((id, i) => [id, i]));
           opts = [...opts].sort((x, y) => (pos.get(x.id) ?? 999) - (pos.get(y.id) ?? 999));
           this.hintSource = 'jev';
+          hintLog = { ...hintLog, method: 'jev', chosen: opts[0].label };
         }
       }
       this.hintList = this.alignToColumns(opts);
       this.hintIdx = 0;
+      if (adv.options.length) this.reviewLog.noteHint(hintLog);
     }
     if (!this.hintList.some((o) => o.combo)) {
       this.toast('没有能大过上家的牌');

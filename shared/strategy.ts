@@ -1,7 +1,7 @@
 // 掼蛋策略规则库：根据《掼蛋实战进阶手册》（guandan_master_deep_study.docx）整理。
 // 手册强调“口诀要附条件”，因此每条规则都由程序根据实际牌面判断是否触发、支持还是反对某个出法，
 // 结果一方面调整本地提示的排序，一方面作为“专家规则命中”交给 Jev 参考。
-import { cardValue } from './cards';
+import { card, cardValue, SMALL_JOKER } from './cards';
 import type { Combo } from './combo';
 import type { Control, OptionFeatures } from './advisor';
 import type { CardTracker } from './tracker';
@@ -48,6 +48,10 @@ export const RULES: Record<string, Rule> = {
   STOP_FINISH: {
     id: 'STOP_FINISH', name: '优先防止对手直接走完', source: '第9章',
     principle: 'If an opponent can go out with this play or the next one, stopping them comes first, even at a high cost.',
+  },
+  GRAB_LEAD: {
+    id: 'GRAB_LEAD', name: '小王抢出牌权', source: '玩家复盘要求（2026-10-04）',
+    principle: 'Early in the round, when an opponent leads a big single (an A or a level card) and I still need the lead to run several combinations, beat it with the small joker instead of passing.',
   },
   DONT_OVERTAKE: {
     id: 'DONT_OVERTAKE', name: '不抢对家的牌', source: '第6.1节',
@@ -177,6 +181,13 @@ export function evaluateRules(c: RuleContext): RuleHit[] {
   // 优先防止对手直接走完：对手刚出的牌，对手剩得很少时，压住它
   if (target && targetSeat !== null && targetSeat !== partner && active(targetSeat) && counts[targetSeat] <= 5) {
     hits.push(hit('STOP_FINISH', 'support', -0.6, `对手只剩 ${counts[targetSeat]} 张，压住他`, `the opponent has only ${counts[targetSeat]} cards; beating the play stops them going out`));
+  }
+
+  // 小王抢出牌权：开局对手首出大单张（A 或级牌），手里还有多手组合要走时，用小王压住拿出牌权
+  if (target && target.type === 'single' && targetSeat !== null && targetSeat % 2 !== seat % 2 && target.value >= 14
+    && combo.type === 'single' && card(combo.cards[0]).rank === SMALL_JOKER && c.hand.length >= 18 && f.handsLeft >= 3
+    && ![next, prev].some((s) => active(s) && counts[s] <= 10)) {
+    hits.push(hit('GRAB_LEAD', 'support', -3.5, '开局对手出大单张，用小王抢出牌权，好走自己的组合', 'early in the round: beat the opponent big single with the small joker to win the lead and run my combinations'));
   }
 
   // 不抢对家的牌：对家出的牌也去压
