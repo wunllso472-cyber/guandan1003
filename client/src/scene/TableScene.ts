@@ -23,16 +23,15 @@ const PAD = 28; // 刘海屏安全边距
 /** 等待 Jev 建议的最长时间 */
 const JEV_TIMEOUT_MS = 2000;
 /**
- * 残局蒙特卡洛模拟（1000 局对打验证：每局净升级比电脑多 +0.32，被双下率从约 25% 降到 20%）。
- * 场上剩余牌数不超过 MC_MAXCARDS 时使用；顾问前 MC_K 个候选各模拟最多 MC_SAMPLES 种牌局；
- * 模拟结果比顾问首选好 MC_MARGIN 级以上才推翻首选（与评估设置一致）。
+ * 蒙特卡洛模拟：顾问前 MC_K 个候选各模拟若干种牌局，结果比顾问首选好 margin 级以上才推翻首选（与评估设置一致）。
+ * - 残局（场上剩 MC_MAXCARDS 张以内）：模拟到整局结束。1000 局对打：每局净升级比电脑多 +0.32。
+ * - 开局和中盘：模拟到本轮结束，再用自我对打拟合的局面评分估计团队结果。
+ *   加上中盘后 1002 局对打：每局净升级 +0.67，胜局率 66%，被双下率 16%（比只在残局模拟多 +0.35）。
  */
 const MC_MAXCARDS = 40;
 const MC_K = 4;
-const MC_SAMPLES = 40;
-const MC_BUDGET_MS = 1000;
-const MC_MIN_SAMPLES = 15;
-const MC_MARGIN = 0.25;
+const MC_END = { mode: 'full', samples: 40, budgetMs: 1000, minSamples: 15, margin: 0.25, label: '残局' } as const;
+const MC_MID = { mode: 'shallow', samples: 30, budgetMs: 1500, minSamples: 12, margin: 0.4, label: '牌局' } as const;
 /** Jev 置信度低于此值时不采用它的排序（300 局评估：0.6 时升级数比原电脑多约 13%；0.35 时双上明显减少） */
 const JEV_MIN_CONFIDENCE = 0.6;
 
@@ -547,7 +546,7 @@ export class TableScene extends Container {
 
   /**
    * 提示：本地顾问给出候选与理由。
-   * 残局（场上剩 40 张以内）用蒙特卡洛模拟决定首选；开局和中盘联机时先请 Jev 排序（最多等 2 秒）。
+   * 先用蒙特卡洛模拟决定首选；手机太慢、模拟不够时，联机再请 Jev 排序（最多等 2 秒）。
    */
   private async doHint() {
     if (this.hintBusy) return;
@@ -566,28 +565,30 @@ export class TableScene extends Container {
       const serial = this.turnSerial;
       const stale = () => this.destroyed || serial !== this.turnSerial || !this.myTurn;
 
-      if (opts.length > 1 && onTable <= MC_MAXCARDS) {
+      if (opts.length > 1) {
+        const cfg = onTable <= MC_MAXCARDS ? MC_END : MC_MID;
         this.hintBusy = true;
         this.hintBtn.text = '推演中…';
         const top = opts.slice(0, MC_K);
-        const r = await runMonteCarlo(mcStateFrom(input), top.map((o) => o.combo), MC_BUDGET_MS, MC_SAMPLES);
+        const r = await runMonteCarlo(mcStateFrom(input), top.map((o) => o.combo), cfg.budgetMs, cfg.samples, cfg.mode);
         this.hintBusy = false;
         if (this.destroyed) return;
         this.hintBtn.text = '提示';
         if (stale()) return;
-        if (r && r.samples >= MC_MIN_SAMPLES) {
+        if (r && r.samples >= cfg.minSamples) {
           let best = 0;
           r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
           const gain = r.scores[best] - r.scores[0];
-          if (best !== 0 && gain >= MC_MARGIN) {
-            const pick = { ...top[best], reasons: [`模拟了 ${r.samples} 种残局，这样出平均多赢 ${gain.toFixed(1)} 级`, ...top[best].reasons] };
+          if (best !== 0 && gain >= cfg.margin) {
+            const pick = { ...top[best], reasons: [`模拟了 ${r.samples} 种${cfg.label}，这样出平均多赢 ${gain.toFixed(1)} 级`, ...top[best].reasons] };
             opts = [pick, ...opts.filter((o) => o !== top[best])];
           } else {
-            opts = [{ ...opts[0], reasons: [`模拟了 ${r.samples} 种残局，这手最稳`, ...opts[0].reasons] }, ...opts.slice(1)];
+            opts = [{ ...opts[0], reasons: [`模拟了 ${r.samples} 种${cfg.label}，这手最稳`, ...opts[0].reasons] }, ...opts.slice(1)];
           }
           this.hintSource = 'mc';
         }
-      } else if (this.client.requestAdvice && opts.length > 1) {
+      }
+      if (this.hintSource === 'local' && this.client.requestAdvice && opts.length > 1 && onTable > MC_MAXCARDS) {
         this.hintBusy = true;
         this.hintBtn.text = '思考中…';
         const res = await this.client.requestAdvice(buildJevContext(input, adv), JEV_TIMEOUT_MS);

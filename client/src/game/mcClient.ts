@@ -22,13 +22,13 @@ function getWorker(): Worker | null {
 }
 
 /** 在后台线程模拟；budgetMs 内尽量多模拟，超时（budgetMs + 余量）返回 null */
-export function runMonteCarlo(state: MCState, moves: (Combo | null)[], budgetMs: number, maxSamples = 400): Promise<MCResult | null> {
+export function runMonteCarlo(state: MCState, moves: (Combo | null)[], budgetMs: number, maxSamples = 400, mode: 'full' | 'shallow' = 'full'): Promise<MCResult | null> {
   const w = getWorker();
   if (!w) return Promise.resolve(null);
   const id = ++seq;
   return new Promise((resolve) => {
     const timer = setTimeout(() => { pending.delete(id); resolve(null); }, budgetMs + 600);
     pending.set(id, (r) => { clearTimeout(timer); resolve(r); });
-    w.postMessage({ id, state, moves, budgetMs, maxSamples });
+    w.postMessage({ id, state, moves, budgetMs, maxSamples, mode });
   });
 }
