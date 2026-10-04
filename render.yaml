@@ -1,11 +1,12 @@
-# Render 部署配置（Blueprint）：联机 WebSocket 服务
+# Render 部署配置（Blueprint）：联机 WebSocket 服务，同时提供游戏网页（不依赖 Netlify 也能直接访问）
 services:
   - type: web
     name: guandan-server
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci && npm run build:server
+    # 同时构建网页（dist/client，由服务端直接提供，联机地址为同域名 /ws）和服务端
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
