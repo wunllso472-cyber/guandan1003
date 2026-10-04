@@ -59,7 +59,7 @@ describe('一键理牌排列', () => {
         if (rest[k].type === rest[k - 1].type && typeIdx[k] > 0) expect(rest[k - 1].value).toBeGreaterThanOrEqual(rest[k].value);
       }
     }
-  });
+  }, 20000); // 400 副随机牌，机器忙时会超过默认的 5 秒
 
   it('天王炸最左，大炸在小炸左边', () => {
     const hand = ids('SJ SJ BJ BJ S5 C5 D5 H5 S5 S9 C9 D9 H9 S3');

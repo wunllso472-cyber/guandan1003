@@ -10,6 +10,8 @@ function esc(s: string) {
 export class RoomUI {
   private room: RoomInfo | null = null;
   private seat = -1;
+  /** 已发出换座请求、等待服务端回复，期间忽略重复点击 */
+  private sitPending = false;
 
   constructor(private el: HTMLElement, private send: (m: ClientMsg) => void, private onLeave: () => void, private toast: (s: string) => void) {
     el.addEventListener('click', (e) => {
@@ -18,7 +20,12 @@ export class RoomUI {
       const act = b.dataset.act!;
       const seat = Number(b.dataset.seat);
       switch (act) {
-        case 'sit': this.send({ t: 'sit', seat }); break;
+        case 'sit':
+          if (this.sitPending) break;
+          this.sitPending = true;
+          setTimeout(() => { this.sitPending = false; }, 3000);
+          this.send({ t: 'sit', seat });
+          break;
         case 'ai': this.send({ t: 'addAI', seat }); break;
         case 'rm': this.send({ t: 'removeAI', seat }); break;
         case 'ready': this.send({ t: 'ready', on: b.dataset.on === '1' }); break;
@@ -31,6 +38,9 @@ export class RoomUI {
   }
 
   show(room: RoomInfo, seat: number) {
+    // 座位界面总把自己画在下方，换座后看起来没变化，所以提示一下
+    if (this.sitPending && this.room?.code === room.code && seat !== this.seat) this.toast('已换座，你的位置始终显示在下方');
+    this.sitPending = false;
     this.room = room;
     this.seat = seat;
     this.el.classList.remove('hidden');

@@ -43,3 +43,12 @@ it('只下发自己的手牌，房间流程正确', () => {
   expect(disposed).toBe(true);
   expect(tokens.size).toBe(0);
 });
+
+it('重复点击同一个座位不报错', () => {
+  const room = new Room('654321', () => {}, new Map());
+  const a = fakeWs();
+  room.join('ta', '甲', a.ws);
+  expect(room.sit('ta', 2)).toBeNull();
+  expect(room.sit('ta', 2)).toBeNull();
+  expect(room.info().seats[2]?.name).toBe('甲');
+});
