@@ -157,6 +157,7 @@ export class Room {
   sit(token: string, to: number): string | null {
     const from = this.seatOf(token);
     if (this.playing) return '游戏中不能换座';
+    if (to === from) return null; // 已经坐在这里（例如重复点击）
     if (to < 0 || to > 3 || this.seats[to]) return '该座位已有人';
     const h = this.seats[from] as Human;
     this.seats[to] = h;
