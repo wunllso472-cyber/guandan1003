@@ -6,6 +6,7 @@ import { bestSplit, aiPlay, preferLooseCards } from './ai';
 import { CardTracker, unseenStat, type UnseenStat } from './tracker';
 import { evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
 import { BOOK_RULES, bookGuidance, bookHits, bookState, type BookInput } from './rulebook';
+import { profileConfidence, profileSeats } from './inference';
 
 export type Control = 'unbeatable' | 'bombOnly' | 'beatable';
 
@@ -42,7 +43,7 @@ export interface AdviceOption {
   book?: string[];
 }
 
-export interface Inference { who: 'partner' | 'left' | 'right'; text: string; confidence: number }
+export interface Inference { who: 'partner' | 'left' | 'right'; text: string; confidence: number; /** 依据的教材规则编号 */ rule?: string }
 
 export interface Advice {
   options: AdviceOption[];
@@ -201,6 +202,15 @@ export function collectFacts(inp: AdviceInput, st: UnseenStat): { facts: string[
       const guess = rec.count === 1 ? '单张' : rec.count === 2 ? '一对或两张单张' : '三张或对子加单张';
       inferred.push({ who, text: `只剩 ${rec.count} 张，可能是${guess}`, confidence: 0.6 });
     }
+  }
+  // 教材 I01–I08：从公开出牌推断主攻/助攻倾向和牌路（只是倾向，附依据）
+  for (const p of profileSeats(tracker, seat)) {
+    if (!p || tracker.seats[p.seat].place) continue;
+    const who = WHO[rel(seat, p.seat)];
+    if (p.role !== 'unknown') {
+      inferred.push({ who, text: `${p.role === 'attack' ? '像在主攻' : '像在助攻'}（${p.evidence.filter((e) => ['I05', 'I06', 'I07'].includes(e.rule)).map((e) => e.text).join('；')}）`, confidence: profileConfidence(p), rule: p.role === 'attack' ? 'I05' : 'I06' });
+    }
+    for (const e of p.evidence) if (['I01', 'I03', 'I04', 'I08'].includes(e.rule)) inferred.push({ who, text: e.text, confidence: 0.4, rule: e.rule });
   }
   return { facts, inferred };
 }

@@ -40,6 +40,8 @@ export interface DecisionLog {
   /** 决定方式：advisor 顾问首选 / mc 模拟后保留首选 / mc-override 模拟推翻首选 / jev */
   method: 'advisor' | 'mc' | 'mc-override' | 'jev';
   mc?: { mode: string; samples: number; gain: number };
+  /** 当时对三家的推断（教材 I01–I08 等，只是倾向） */
+  beliefs?: string[];
   /** 顾问排序前几名 */
   candidates: { label: string; score: number; mc?: number; reasons: string[]; rules: string[] }[];
 }
@@ -53,6 +55,7 @@ export function decisionLog(adv: Advice, source: DecisionLog['source'], chosenId
     chosen: adv.options[chosenIdx]?.label ?? '不出',
     method,
     ...(mc ? { mc: { mode: mc.mode, samples: mc.samples, gain: Number(mc.gain.toFixed(3)) } } : {}),
+    beliefs: adv.inferred.slice(0, 8).map((x) => `${{ partner: '对家', left: '上家', right: '下家' }[x.who]}：${x.text}${x.rule ? `（${x.rule}）` : ''}`),
     candidates: adv.options.slice(0, 6).map((o, i) => ({
       label: o.label,
       score: Number(o.score.toFixed(2)),

@@ -10,6 +10,7 @@ import { matchRules, type RuleLibrary, type StrategyRule } from './guandan-ai/ru
 import type { FeatureContext } from './guandan-ai/features';
 import type { Stage } from './guandan-ai/protocol';
 import type { CardTracker } from './tracker';
+import { profileSeats, type SeatProfile } from './inference';
 import type { Control, OptionFeatures } from './advisor';
 import { disabledRules, type RuleHit } from './strategy';
 
@@ -37,6 +38,8 @@ export interface BookState {
   features: FeatureContext;
   /** 对手在本方领出的这些牌型上反复顺牌 */
   shedTypes: Set<ComboType>;
+  /** 三家画像（I01–I08），自己的位置为 null */
+  profiles: (SeatProfile | null)[];
 }
 
 const SPECIAL: ComboType[] = ['tube', 'plate'];
@@ -63,9 +66,13 @@ export function bookState(inp: BookInput): BookState {
     else if (low(c)) points -= 1;
   }
   const strength = points >= 12 ? 'strong' : points >= 6 ? 'medium' : 'weak';
+  // 三家画像：对家像在主攻时，自己（不是强牌）转为助攻；对手像在主攻时，提前当作冲刺威胁
+  const profiles = profileSeats(tracker, seat);
+  const partnerAttacks = active(partner) && profiles[partner]?.role === 'attack';
   let role: string = strength === 'strong' ? 'attack' : strength === 'weak' ? 'support' : 'undecided';
   if (!active(partner)) role = 'attack';
   else if (counts[partner] + 5 <= hand.length && counts[partner] <= 12) role = 'support';
+  else if (partnerAttacks && strength !== 'strong') role = 'support';
 
   // 本方领出的牌型，对手跟着顺牌的次数
   const shed = new Map<ComboType, number>();
@@ -86,19 +93,19 @@ export function bookState(inp: BookInput): BookState {
     'state.role': role,
     'state.current_winner_relation': target ? (targetSeat === partner ? 'partner' : 'opponent') : 'none',
     'state.immediate_danger': minOpp !== null && minOpp <= 3,
-    'state.opponent_sprint_threat': fromOpp && counts[targetSeat!] <= 8,
+    'state.opponent_sprint_threat': fromOpp && (counts[targetSeat!] <= 8 || (profiles[targetSeat!]?.role === 'attack' && counts[targetSeat!] <= 12)),
     'state.opponent_near_listen': minOpp !== null && minOpp <= 5,
     'state.verified_opponent_immediate_win': minOpp !== null && minOpp <= 2,
     'state.threat_seat_remaining': minOpp,
     'state.partner_cannot_bridge': !active(partner),
-    'state.partner_has_attack_opportunity': active(partner) && counts[partner] + 5 <= hand.length,
+    'state.partner_has_attack_opportunity': active(partner) && (counts[partner] + 5 <= hand.length || partnerAttacks),
     // 对手出小牌，而他的搭档快出完：可能在送牌
     'state.opponent_feed_threat': fromOpp && target!.value <= 10 && !isBomb(target!) && active((targetSeat! + 2) % 4) && counts[(targetSeat! + 2) % 4] <= 4,
     'state.opponent_repeatedly_sheds_on_route': shedTypes.size > 0,
     'state.self_has_strong_bomb': baseCombos.some((c) => isBomb(c) && bombLevel(c) >= 3),
     'state.single_route_weak': singlesLow >= 3,
   };
-  return { stage, features, shedTypes };
+  return { stage, features, shedTypes, profiles };
 }
 
 export interface BookCandidate {
@@ -157,6 +164,9 @@ type Weigh = (x: { inp: BookInput; bs: BookState; cand: BookCandidate | null; fc
  * 分量都不大（±1 以内），只调整候选先后，不推翻一手出完、送对家等强规则。
  */
 const WEIGHTS: Record<string, Weigh> = {
+  // 慎接对家领出：原有 DONT_OVERTAKE 已计分；画像显示对家在主攻（I05–I07）时再加重
+  T04: ({ inp, bs, cand }) => cand && !cand.features.finishes && inp.targetSeat !== null && bs.profiles[inp.targetSeat]?.role === 'attack'
+    ? { w: 0.4, note: '对家像在主攻，别打断他的牌路' } : null,
   T02: ({ fc }) => fc['action.intends_feed_partner'] ? { w: -0.3, note: '牌力偏弱，打助攻给对家送牌' } : null,
   H02: ({ fc }) => fc['state.role'] !== 'support' ? { w: 0.4, note: '组小顺子会留下多张难出的小单张' } : null,
   H05: ({ fc }) => fc['action.leads_special_group'] ? { w: 0.4, note: '打助攻时小三连对、钢板留着拆成对子三张送牌' } : null,

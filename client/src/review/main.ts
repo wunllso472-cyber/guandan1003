@@ -160,7 +160,8 @@ function stepHtml(r: RoundRecord, st: Step): string {
         <h3 style="margin-top:12px">触发的规则（推荐的这手）</h3>
         <div class="rules">${dec ? rulesHtml(dec.d) : '<span class="none">没有记录</span>'}</div>
       </div>
-      <div class="box"><h3>候选出法</h3>${dec ? candidatesHtml(dec.d) : '<span class="none">没有记录</span>'}</div>
+      <div class="box"><h3>候选出法</h3>${dec ? candidatesHtml(dec.d) : '<span class="none">没有记录</span>'}
+        ${dec?.d.beliefs?.length ? `<h3 style="margin-top:12px">对三家的推断（只是倾向）</h3><ul class="reasons">${dec.d.beliefs.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}</div>
     </div>
   </div>`;
 }
