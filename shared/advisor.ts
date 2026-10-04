@@ -243,7 +243,8 @@ export function advise(inp: AdviceInput): Advice {
     const split = rest.length ? bestSplit(rest, level) : { score: -10, combos: [] as Combo[] };
     const take = new Map<number, number>();
     for (const id of c.cards) if (!isWild(id, level)) take.set(card(id).rank, (take.get(card(id).rank) ?? 0) + 1);
-    const breaksBomb = [...take].some(([r, n]) => (have.get(r) ?? 0) >= 4 && (have.get(r) ?? 0) - n < 4) && !isBomb(c);
+    // 同花顺借用了另一组炸弹里的牌也算拆炸（普通炸弹本身就是那一组，不算）
+    const breaksBomb = [...take].some(([r, n]) => (have.get(r) ?? 0) >= 4 && (have.get(r) ?? 0) - n < 4) && c.type !== 'bomb' && c.type !== 'jokerbomb';
     const f: OptionFeatures = {
       handsLeft: split.combos.filter((x) => !isBomb(x)).length,
       bombsLeft: split.combos.filter(isBomb).length,

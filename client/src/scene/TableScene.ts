@@ -608,12 +608,23 @@ export class TableScene extends Container {
       this.toast('没有能大过上家的牌');
       return;
     }
-    const o = this.hintList[this.hintIdx % this.hintList.length];
+    const n = this.hintList.length;
+    const k = this.hintIdx % n;
+    const o = this.hintList[k];
     this.hintIdx++;
     if (o.combo) this.hand.select(o.combo.cards);
     else this.hand.clearSelection();
-    const head = { mc: '推演', jev: 'AI 推荐', local: '提示' }[this.hintSource];
-    this.showReason(`${head}：${o.combo ? '' : '建议不出。'}${o.reasons.slice(0, 2).join('；')}`);
+    if (k === 0) {
+      const head = { mc: '推演', jev: 'AI 推荐', local: '提示' }[this.hintSource];
+      this.showReason(`${head}：${o.combo ? '' : '建议不出。'}${o.reasons.slice(0, 2).join('；')}`);
+    } else {
+      // 再点“提示”看到的是备选：标明名次，规则反对的说清楚是缺点，不要写成推荐理由
+      const cons = o.rules.filter((h) => h.weight >= 0.5).map((h) => h.note);
+      const what = o.combo ? '' : '不出。';
+      this.showReason(cons.length
+        ? `备选 ${k + 1}/${n}（不推荐）：${what}${cons.slice(0, 2).join('；')}`
+        : `备选 ${k + 1}/${n}：${what}${o.reasons.slice(0, 2).join('；')}`);
+    }
   }
 
   /** 提示的牌如果和理好的某一列是同一手牌（类型、大小都相同），就直接选那一列，不拆散别的列 */
