@@ -5,6 +5,7 @@ import { partnerOf } from '../shared/game';
 import type { NetEvent, PlayerInfo, RoomInfo, ServerMsg, Snapshot, Voice } from '../shared/protocol';
 import type { ChatKind } from '../shared/chat';
 import { isConfigured as jevReady, warmUp } from './jev';
+import { createMcRunner } from './mcPool';
 import type { ComboType } from '../shared/combo';
 
 const AI_NAMES = ['阿强', '小美', '老王', '二丫', '大刘', '阿珍', '胖虎', '小雪', '铁柱', '翠花'];
@@ -208,6 +209,9 @@ export class Room {
     if (notReady.length) return `还有玩家未准备：${notReady.map(([, h]) => h.name).join('、')}`;
     this.players = this.seats.map((s) => ({ name: s!.name, avatar: s!.avatar, isAI: s!.kind === 'ai', voice: s!.voice }));
     const table = new Table(this.seats.map((s) => s!.kind === 'ai'));
+    // 补位电脑用困难难度（与托管相同的策略），模拟放在工作线程，不阻塞其他房间
+    table.aiLevel = 'hard';
+    table.mcRunner = createMcRunner();
     this.table = table;
     table.on((e) => this.onTableEvent(e));
     warmUp();

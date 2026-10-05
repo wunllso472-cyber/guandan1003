@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build:client": "tsc --noEmit && vite build",
-    "build:server": "vite build && esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/server.mjs"
+    "build:server": "vite build && esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/server.mjs && esbuild server/mcWorker.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/mcWorker.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",

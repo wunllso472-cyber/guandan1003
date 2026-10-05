@@ -43,7 +43,7 @@
   - `mc.ts`：蒙特卡洛模拟与局面评分
   - `autoplay.ts`：托管/超时代打（与提示相同的策略）和决策记录
   - `protocol.ts` / `chat.ts`：联机消息格式、快捷聊天
-- `server/`：`index.ts` 是 HTTP/WebSocket 入口，`room.ts` 管理房间，`jev.ts` 调用 Jev 接口，`logs.ts` 复盘日志（`/logs`）
+- `server/`：`index.ts` 是 HTTP/WebSocket 入口，`room.ts` 管理房间，`mcPool.ts` / `mcWorker.ts` 困难电脑的模拟工作线程（构建为 `dist/mcWorker.mjs`），`jev.ts` 调用 Jev 接口，`logs.ts` 复盘日志（`/logs`）
 - `client/src/`：`scene/` 牌桌界面，`net/` 联机，`game/` 单机对局、理牌、模拟线程、复盘日志，`review/` 复盘页面（`review.html`），`gfx/` 动画特效，`audio/` 声音，`ui/` 按钮
 - `tests/`：测试
 - `scripts/`：开发启动、评估（`bench.ts`、`bench-tribute.ts`、`infer-accuracy.ts`）、拟合、复盘日志读取（`review.ts`）、语音生成
@@ -57,7 +57,7 @@
 3. 如果手机算得太慢、模拟样本不够，联机时改为请 **Jev** 排序（最多等 2 秒，置信度不低于 0.6 才采用）。
 
 托管和超时代打用同样的策略（每手模拟时间预算 300 毫秒，不够时用顾问首选）。
-电脑座位有两档难度（单机在“设置 → 电脑难度”切换，默认困难；联机房间补位的电脑为普通）：
+电脑座位有两档难度（单机在“设置 → 电脑难度”切换，默认困难；联机房间补位的电脑为困难，模拟在服务端工作线程 `server/mcWorker.ts` 中执行，不阻塞其他房间）：
 - 普通：原电脑出牌，不记牌；
 - 困难：与托管相同的策略（记牌 + 顾问 + 模拟），单机时模拟放在后台线程，界面不卡。
 
