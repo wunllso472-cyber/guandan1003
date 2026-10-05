@@ -5,7 +5,7 @@ import { bestSplit, aiPlay, leadOptions, followOptions, type AIContext } from '.
 import { findAllPlays } from './finder';
 import { bombLevel, isBomb, type Combo, type ComboType } from './combo';
 import { card, cardValue, isWild, shuffle } from './cards';
-import type { CardTracker } from './tracker';
+import { sameTypeBeatable, unseenStat, type CardTracker } from './tracker';
 
 /** 模拟需要的局面数据（纯数据，可以传给 Web Worker） */
 export interface MCState {
@@ -314,8 +314,8 @@ export function mcStateFrom(inp: {
 
 // ---------------- 中盘：浅层模拟 + 局面评分 ----------------
 
-/** 局面特征名称（与 EVAL_WEIGHTS 一一对应，常数项除外） */
-export const EVAL_FEATURES = [
+/** 局面特征名称（第一版 9 个，与 EVAL_WEIGHTS_V1 一一对应，常数项除外） */
+export const EVAL_FEATURES_V1 = [
   '下一手由我方先出（+1）或对方先出（-1）',
   '对方最快的人还要几手 - 我方最快的人还要几手',
   '对方合计手数 - 我方合计手数',
@@ -327,19 +327,49 @@ export const EVAL_FEATURES = [
   '对方较慢的人剩几张 - 我方较慢的人剩几张',
 ];
 
-/** 由 scripts/fit-eval.ts 拟合得到（3000 局电脑对局、78554 个局面，R² = 0.52；第二版加入“较慢的人”特征）：[常数项, ...各特征权重]，预测该队本局净升级 */
-export const EVAL_WEIGHTS = [0, 0.3651, -0.0107, 0.3298, 0.437, 0.6799, 0.6799, 0.0139, -0.236, 0.0061];
+/**
+ * 第二版在第一版之后加入控制牌（教材“手数 − 控制数”）：
+ * 有效手数 = 不含炸弹的手数 − 对方两家用同类牌压不住的手数（推演里各家手牌已知，直接按对方的牌判断）。
+ */
+export const EVAL_FEATURES = [
+  ...EVAL_FEATURES_V1,
+  '对方最快的人有效手数 - 我方最快的人有效手数',
+  '对方较慢的人有效手数 - 我方较慢的人有效手数',
+  '我方炸弹威力 - 对方炸弹威力（按炸弹等级，天王炸记 6）',
+  '我方有人有效手数 ≤ 0（能一路走完）- 对方有人如此',
+  '首出方最快的人有效手数 ≤ 1：我方首出 +1 / 对方首出 -1 / 否则 0',
+];
 
-/** 从 team 的视角计算局面特征；leader 是下一手首出的座位 */
-export function evalFeatures(hands: number[][], level: number, team: number, leader: number, finishOrder: number[]): number[] {
+/** 由 scripts/fit-eval.ts 拟合得到（3000 局电脑对局、78554 个局面，R² = 0.52；第二版加入“较慢的人”特征）：[常数项, ...各特征权重]，预测该队本局净升级 */
+export const EVAL_WEIGHTS_V1 = [0, 0.3651, -0.0107, 0.3298, 0.437, 0.6799, 0.6799, 0.0139, -0.236, 0.0061];
+
+/**
+ * 第二版权重（加入控制牌特征）：scripts/fit-eval.ts 3000 局，验证集 R² 0.516（第一版同样数据 0.497）。
+ * 600 局配对对打（中盘模拟）：对原电脑每局净升级比第一版多 +0.30 ±0.16，对顾问多 +0.15 ±0.15。
+ */
+export const EVAL_WEIGHTS = [0, 0.2971, -0.1129, 0.3283, 0.4576, 0.7327, 0.7327, 0.0121, -0.2981, 0.0115, 0.1146, 0.0977, 0.0016, 0.1491, 0.1921];
+
+/** 当前使用的局面评分（评估用可切换） */
+export const evalModel: { version: 'v1' | 'v2'; weights: number[] } = { version: 'v2', weights: EVAL_WEIGHTS };
+
+/** 从 team 的视角计算局面特征；leader 是下一手首出的座位。version 为 v1 时只算前 9 个 */
+export function evalFeatures(hands: number[][], level: number, team: number, leader: number, finishOrder: number[], version: 'v1' | 'v2' = 'v2'): number[] {
   const hs = hands.map((h) => (h.length ? bestSplit(h, level).combos : []));
   const handsOf = (s: number) => hs[s].filter((c) => !isBomb(c)).length;
   const bombsOf = (s: number) => hs[s].filter(isBomb).length;
   const members = (t: number) => [0, 1, 2, 3].filter((s) => s % 2 === t);
+  // 对方两家的牌合在一起，判断同类能不能压过（合在一起会略高估对方，只是近似）
+  const oppStat = version === 'v2' ? [0, 1].map((t) => unseenStat(members(1 - t).flatMap((s) => hands[s]), level)) : [];
+  const effOf = (s: number) => {
+    const st = oppStat[s % 2];
+    return handsOf(s) - hs[s].filter((c) => !isBomb(c) && !sameTypeBeatable(c, st, level)).length;
+  };
+  const powerOf = (s: number) => hs[s].filter(isBomb).reduce((a, c) => a + Math.min(6, bombLevel(c)), 0);
   const stat = (t: number) => {
     const act = members(t).filter((s) => hands[s].length > 0);
+    const eff = version === 'v2' ? act.map(effOf) : [];
     return {
-      minH: act.length < 2 ? (act.length ? Math.min(...act.map(handsOf)) : 0) : Math.min(...act.map(handsOf)),
+      minH: act.length ? Math.min(...act.map(handsOf)) : 0,
       sumH: act.reduce((a, s) => a + handsOf(s), 0),
       bombs: act.reduce((a, s) => a + bombsOf(s), 0),
       done: members(t).filter((s) => finishOrder.includes(s)).length,
@@ -347,11 +377,16 @@ export function evalFeatures(hands: number[][], level: number, team: number, lea
       // 较慢的那个人：双上、少被双下取决于他（已出完的人记 0）
       maxH: act.length ? Math.max(...act.map(handsOf)) : 0,
       maxN: act.length ? Math.max(...act.map((s) => hands[s].length)) : 0,
+      minE: eff.length ? Math.min(...eff) : 0,
+      maxE: eff.length ? Math.max(...eff) : 0,
+      power: act.reduce((a, s) => a + powerOf(s), 0),
+      runs: eff.some((e) => e <= 0) ? 1 : 0,
+      active: act.length > 0,
     };
   };
   const us = stat(team), them = stat(1 - team);
   const first = finishOrder.length ? (finishOrder[0] % 2 === team ? 1 : -1) : 0;
-  return [
+  const base = [
     leader % 2 === team ? 1 : -1,
     them.minH - us.minH,
     them.sumH - us.sumH,
@@ -362,11 +397,23 @@ export function evalFeatures(hands: number[][], level: number, team: number, lea
     them.maxH - us.maxH,
     them.maxN - us.maxN,
   ];
+  if (version === 'v1') return base;
+  const lead = leader % 2 === team ? us : them;
+  const leadClose = lead.active && lead.minE <= 1 ? (leader % 2 === team ? 1 : -1) : 0;
+  return [
+    ...base,
+    them.minE - us.minE,
+    them.maxE - us.maxE,
+    us.power - them.power,
+    us.runs - them.runs,
+    leadClose,
+  ];
 }
 
 export function evalPosition(hands: number[][], level: number, team: number, leader: number, finishOrder: number[]): number {
-  const f = evalFeatures(hands, level, team, leader, finishOrder);
-  return f.reduce((s, v, i) => s + v * EVAL_WEIGHTS[i + 1], EVAL_WEIGHTS[0]);
+  const w = evalModel.weights;
+  const f = evalFeatures(hands, level, team, leader, finishOrder, evalModel.version);
+  return f.reduce((s, v, i) => s + v * w[i + 1], w[0]);
 }
 
 /** 浅层推演：执行候选出法后，用简化出牌推演到这一轮结束，再给局面打分（本局已结束则用真实结果） */

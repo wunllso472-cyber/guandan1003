@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DECK, ALL_IDS, type Suit } from '../shared/cards';
 import { parseCombos } from '../shared/combo';
 import { determinize, monteCarlo, type MCState } from '../shared/mc';
+import { mcCandidates, MC_K } from '../shared/autoplay';
 
 function ids(spec: string, used = new Set<number>()): number[] {
   return spec.split(/\s+/).filter(Boolean).map((t) => {
@@ -74,5 +75,13 @@ describe('蒙特卡洛模拟', () => {
       expect(h[2].length + h[3].length).toBe(74);
     }
     expect(ok).toBe(50);
+  });
+
+  it('模拟候选：前 4 个之外按顺序补上没出现过的牌型（含不出）', () => {
+    const o = (type: string | null, n = 1) => ({ combo: type ? { type, cards: new Array(n).fill(0), value: 0 } as never : null });
+    const opts = [o('single'), o('single'), o('single'), o('single'), o('single'), o('pair', 2), o('pair', 2), o(null), o('straight', 5)];
+    expect(mcCandidates(opts, 0)).toHaveLength(MC_K);
+    const c = mcCandidates(opts, 2);
+    expect(c.slice(MC_K)).toEqual([opts[5], opts[7]]);
   });
 });

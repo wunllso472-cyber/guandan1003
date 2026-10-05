@@ -9,6 +9,30 @@ import type { Combo } from './combo';
 export const MC_MAXCARDS = 40;
 /** 模拟顾问前几个候选 */
 export const MC_K = 4;
+
+/**
+ * 前 MC_K 个之外最多再补几个不同类型的候选（评估用可调，0 表示不补）。
+ * 600 局配对评估（补 2 个，总计算量不变）：对原电脑每局少 0.17 ±0.13 级、对顾问少 0.19 ±0.14 级，所以默认不补。
+ */
+export const mcExtra = { n: 0 };
+
+/**
+ * 交给模拟的候选：顾问前 MC_K 个，再按顾问排序补上前面没有的牌型（含“不出”），最多补 mcExtra.n 个。
+ * 顾问排序靠后但类型不同的出法也能被模拟看到。
+ */
+export function mcCandidates<T extends { combo: Combo | null }>(opts: T[], extra = mcExtra.n): T[] {
+  const top = opts.slice(0, MC_K);
+  if (extra <= 0) return top;
+  const kind = (o: T) => o.combo ? o.combo.type + ':' + o.combo.cards.length : 'pass';
+  const seen = new Set(top.map(kind));
+  for (const o of opts.slice(MC_K)) {
+    if (top.length >= MC_K + extra) break;
+    if (seen.has(kind(o))) continue;
+    seen.add(kind(o));
+    top.push(o);
+  }
+  return top;
+}
 /**
  * 残局：模拟到整局结束；开局和中盘：模拟到本轮结束再用局面评分。
  * 结果比顾问首选好 margin 级以上才推翻首选（与 1002 局对打评估的设置一致）。
@@ -89,7 +113,7 @@ function prepare(inp: AdviceInput, budgetMs: number, source: DecisionLog['source
   const opts = adv.options;
   if (!opts.length) return { done: { combo: null, log: null } as Decision };
   if (opts.length === 1 || budgetMs <= 0) return { done: { combo: opts[0].combo, log: decisionLog(adv, source, 0, 'advisor') } as Decision };
-  return { adv, cfg: mcConfigFor(inp.counts), top: opts.slice(0, MC_K) };
+  return { adv, cfg: mcConfigFor(inp.counts), top: mcCandidates(opts) };
 }
 
 /** 按模拟结果选定出法（模拟失败或样本不够时用顾问首选） */

@@ -6,7 +6,7 @@ import { CardTracker } from '@shared/tracker';
 import { advise, buildJevContext, type AdviceOption } from '@shared/advisor';
 import { preferLooseCards } from '@shared/ai';
 import { mcStateFrom } from '@shared/mc';
-import { MC_K, MC_MAXCARDS, decisionLog, mcConfigFor, pickByMC } from '@shared/autoplay';
+import { MC_MAXCARDS, decisionLog, mcCandidates, mcConfigFor, pickByMC } from '@shared/autoplay';
 import { ReviewLogger } from '../game/reviewLog';
 import { runMonteCarlo } from '../game/mcClient';
 import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable } from '../gfx/textures';
@@ -574,7 +574,7 @@ export class TableScene extends Container {
         const cfg = mcConfigFor(g.handCounts());
         this.hintBusy = true;
         this.hintBtn.text = '推演中…';
-        const top = opts.slice(0, MC_K);
+        const top = mcCandidates(opts);
         const r = await runMonteCarlo(mcStateFrom(input), top.map((o) => o.combo), MC_BUDGET_MS[cfg.mode], cfg.samples, cfg.mode);
         this.hintBusy = false;
         if (this.destroyed) return;

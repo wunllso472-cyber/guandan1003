@@ -16,8 +16,8 @@ import { aiPlay } from '../shared/ai';
 import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
-import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf, rolloutNoise, type RolloutPolicy } from '../shared/mc';
-import { smartPlay, mcConfigFor, pickByMC, mcTies } from '../shared/autoplay';
+import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf, rolloutNoise, evalModel, EVAL_WEIGHTS_V1, type RolloutPolicy } from '../shared/mc';
+import { smartPlay, mcConfigFor, pickByMC, mcTies, mcCandidates, mcExtra } from '../shared/autoplay';
 import { writeFileSync } from 'node:fs';
 
 const MC_K = Number(process.env.GD_MC_K ?? 4);
@@ -45,6 +45,11 @@ const NO_JEV = process.env.GD_NO_JEV === '1';
 const ROLLOUT = (process.env.GD_ROLLOUT ?? 'ai') as RolloutPolicy;
 const SHALLOW_ROLLOUT = (process.env.GD_SHALLOW_ROLLOUT ?? 'quick') as RolloutPolicy;
 if (process.env.GD_NOISE) rolloutNoise.eps = Number(process.env.GD_NOISE);
+/** 模拟候选：GD_MC_EXTRA 在前 4 个之外补几个不同类型的候选；GD_MC_EQUAL_COST=1 按候选数减少样本，使总计算量与 4 个候选相同 */
+if (process.env.GD_MC_EXTRA) mcExtra.n = Number(process.env.GD_MC_EXTRA);
+const EQUAL_COST = process.env.GD_MC_EQUAL_COST === '1';
+/** 中盘局面评分：默认第二版（加入控制牌特征）；GD_EVAL=v1 用第一版 */
+if (process.env.GD_EVAL === 'v1') { evalModel.version = 'v1'; evalModel.weights = EVAL_WEIGHTS_V1; }
 export const jevStats = { decisions: 0, ties: 0, calls: 0, adopted: 0, changed: 0, failed: 0 };
 
 async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Combo | null> {
@@ -74,9 +79,10 @@ async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Co
     // 与托管相同的模拟设置（不限时间、按样本数）；模拟拿不准时请 Jev 在几个差不多的出法里定
     jevStats.decisions++;
     const cfg = mcConfigFor(g.handCounts());
-    const top = adv.options.slice(0, MC_K);
+    const top = mcCandidates(adv.options);
     const st = mcStateFrom(inp), moves = top.map((o) => o.combo), seed = g.roundNo * 1000 + g.hands[seat].length;
-    const r = cfg.mode === 'full' ? monteCarlo(st, moves, 1e9, cfg.samples, seed, ROLLOUT) : monteCarloShallow(st, moves, 1e9, cfg.samples, seed, SHALLOW_ROLLOUT);
+    const samples = EQUAL_COST ? Math.max(cfg.minSamples, Math.round(cfg.samples * Math.min(MC_K, adv.options.length) / top.length)) : cfg.samples;
+    const r = cfg.mode === 'full' ? monteCarlo(st, moves, 1e9, samples, seed, ROLLOUT) : monteCarloShallow(st, moves, 1e9, samples, seed, SHALLOW_ROLLOUT);
     const mcPick = top[pickByMC(r, cfg)?.best ?? 0];
     const ties = mcTies(r, cfg).map((i) => top[i]);
     if (ties.length < 2) return mcPick.combo;
