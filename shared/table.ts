@@ -3,7 +3,7 @@
 import { GuandanGame, teamOf, type GameEvent, type RoundResult } from './game';
 import { aiPlay, hintOptions } from './ai';
 import { smartReturn } from './tribute';
-import { smartDecide, type DecisionLog } from './autoplay';
+import { smartDecide, smartDecideAsync, type DecisionLog, type MCRunner } from './autoplay';
 import { CardTracker } from './tracker';
 import { isBomb, type Combo } from './combo';
 import { validateChat, CHAT_COOLDOWN_MS, type ChatKind, type ChatMsg } from './chat';
@@ -34,6 +34,17 @@ export class Table {
    * 模拟在当前线程同步执行，单机会短暂占用浏览器、联机会占用服务端，所以预算要小；0 表示只用顾问。
    */
   autoBudgetMs = 300;
+  /**
+   * 电脑座位的难度：normal 原电脑出牌（不记牌）；hard 与托管相同的策略（记牌、顾问、蒙特卡洛模拟）。
+   * 1000 局对打：托管策略对原电脑每局净升级约 +0.7。
+   */
+  aiLevel: 'normal' | 'hard' = 'normal';
+  /** 设置后，困难电脑的模拟交给它异步执行（单机用后台线程，界面不卡）；不设置时在当前线程同步执行（预算 autoBudgetMs） */
+  mcRunner: MCRunner | null = null;
+  /** 异步模拟时每手的时间预算（毫秒） */
+  asyncBudgetMs = 700;
+  /** 每次轮到新的出牌人加一，用于丢弃过期的异步决策 */
+  private turnSerial = 0;
   /** 每个座位视角的记牌器（只用该座位能知道的公开信息），托管决策用 */
   private trackers = [0, 1, 2, 3].map((s) => new CardTracker(s));
 
@@ -153,6 +164,7 @@ export class Table {
 
   private handle(e: GameEvent) {
     for (const t of this.trackers) t.apply(e);
+    if (e.type === 'turn' || e.type === 'roundStart') this.turnSerial++;
     if (e.type === 'roundStart') { this.roundStartAt = Date.now(); this.lastResult = null; }
     if (e.type === 'roundEnd') {
       this.lastResult = e.result;
@@ -213,7 +225,9 @@ export class Table {
     const until = Date.now() + this.dealDelay() + TURN_SECONDS * 1000 * this.speed;
     this.setDeadline(seat, until);
     if (this.controlled(seat)) {
-      const delay = this.dealDelay() + (this.isAI[seat] ? 700 + Math.random() * 700 : 600);
+      // 困难电脑异步模拟本身要花时间，等待短一些
+      const think = this.isAI[seat] ? (this.aiLevel === 'hard' && this.mcRunner ? 250 + Math.random() * 400 : 700 + Math.random() * 700) : 600;
+      const delay = this.dealDelay() + think;
       this.after(delay, () => this.aiAct(seat));
     } else {
       this.after((until - Date.now()) / this.speed, () => this.onTimeout(seat));
@@ -232,22 +246,39 @@ export class Table {
     const g = this.game;
     if (g.phase !== 'play' || g.turn !== seat) return;
     const target = g.lastPlay?.combo ?? null, targetSeat = g.lastPlay?.seat ?? null;
-    let c: Combo | null;
-    if (this.isAI[seat]) {
-      // 电脑座位保持原来的出牌方式（不改变对手难度）
-      c = aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
-    } else {
-      // 玩家托管或超时：与“提示”相同的策略
-      try {
-        const r = smartDecide({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker: this.trackers[seat] }, this.autoBudgetMs, source);
-        c = r.combo;
-        // 先发决策依据，再出牌：复盘日志能把依据挂到这手牌上
-        if (r.log) this.emit({ type: 'decision', seat, d: r.log });
-      } catch (err) {
-        console.error('托管策略出错，改用电脑出牌', err);
-        c = aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
-      }
+    const basic = () => aiPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, handCounts: g.handCounts() });
+    const input = { seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker: this.trackers[seat] };
+    if (this.isAI[seat] && this.aiLevel === 'normal') {
+      this.apply(seat, basic());
+      return;
     }
+    if (this.isAI[seat] && this.mcRunner) {
+      // 困难电脑：模拟在后台执行，回来时如果已经不是这一手（重开、换人、对局结束）就丢弃
+      const serial = this.turnSerial;
+      smartDecideAsync(input, this.asyncBudgetMs, this.mcRunner)
+        .then((r) => r.combo, (err) => { console.error('电脑策略出错，改用原电脑出牌', err); return basic(); })
+        .then((c) => {
+          if (this.disposed || serial !== this.turnSerial || g.phase !== 'play' || g.turn !== seat) return;
+          this.apply(seat, c);
+        });
+      return;
+    }
+    // 玩家托管、超时，或同步执行的困难电脑：与“提示”相同的策略
+    let c: Combo | null;
+    try {
+      const r = smartDecide(input, this.autoBudgetMs, source);
+      c = r.combo;
+      // 先发决策依据，再出牌：复盘日志能把依据挂到这手牌上（电脑座位不发）
+      if (r.log && !this.isAI[seat]) this.emit({ type: 'decision', seat, d: r.log });
+    } catch (err) {
+      console.error('托管策略出错，改用电脑出牌', err);
+      c = basic();
+    }
+    this.apply(seat, c);
+  }
+
+  private apply(seat: number, c: Combo | null) {
+    const g = this.game;
     const err = c ? g.play(seat, c.cards, c) : g.pass(seat);
     if (err) {
       // 兜底：不应发生，避免卡死

@@ -18,6 +18,8 @@ export interface MCState {
   unseen: number[];
   /** 确定在某人手里的牌（进贡/还贡亮过、还没打出） */
   known: number[][];
+  /** 确定不在某人手里的牌（进贡者没有比贡牌大的牌、抗贡后其他人没有大王），推测手牌时不分给他 */
+  lacks?: number[][];
   /** 已出完的座位，按名次顺序 */
   finishOrder: number[];
   /** 当前要压的牌 */
@@ -77,22 +79,40 @@ export function determinize(st: MCState, seed: number): number[][] | null {
   const need = seats.map((s) => st.counts[s] - hands[s].length);
   if (need.some((n) => n < 0) || need.reduce((a, b) => a + b, 0) > rest.length) return null;
   const weightOf = cardWeights(st, seats);
-  if (!weightOf) {
+  const lacks = seats.map((s) => new Set(st.lacks?.[s] ?? []));
+  const constrained = lacks.some((l) => rest.some((id) => l.has(id)));
+  if (!weightOf && !constrained) {
     let k = 0;
     seats.forEach((s, i) => { hands[s].push(...rest.slice(k, k + need[i])); k += need[i]; });
     return hands;
   }
+  // 每张牌能给哪几家：排除确定没有的；全被排除说明信息矛盾，这张牌不加限制
+  const eligible = new Map<number, number[]>();
+  for (const id of rest) {
+    const can = seats.map((_, i) => i).filter((i) => !lacks[i].has(id));
+    eligible.set(id, can.length ? can : seats.map((_, i) => i));
+  }
+  // 受限最多的牌先分（洗牌后的顺序内稳定排序，仍然随机）；某家剩下能拿的牌正好等于还缺的张数时必须给他
+  const order = [...rest].sort((a, b) => eligible.get(a)!.length - eligible.get(b)!.length);
+  const avail = seats.map((_, i) => rest.filter((id) => eligible.get(id)!.includes(i)).length);
   // 加权分配：每张牌按“该家还缺几张 × 该家持有这张牌的相对概率”随机给一家
   let r = (seed * 2654435761) >>> 0;
   const rand = () => { r = (r + 0x6d2b79f5) >>> 0; let t = Math.imul(r ^ (r >>> 15), 1 | r); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  for (const id of rest) {
-    let total = 0;
-    const ws = seats.map((s, i) => { const w = need[i] > 0 ? need[i] * weightOf(i, id) : 0; total += w; return w; });
-    if (total <= 0) continue;
-    let x = rand() * total, i = 0;
-    while (i < ws.length - 1 && x >= ws[i]) { x -= ws[i]; i++; }
-    hands[seats[i]].push(id);
-    need[i]--;
+  for (const id of order) {
+    if (need.every((n) => n <= 0)) break;
+    const can = eligible.get(id)!;
+    let pick = can.find((i) => need[i] > 0 && need[i] >= avail[i]);
+    if (pick === undefined) {
+      let total = 0;
+      const ws = can.map((i) => { const w = need[i] > 0 ? need[i] * (weightOf ? weightOf(i, id) : 1) : 0; total += w; return w; });
+      if (total <= 0) return null;
+      let x = rand() * total, k = 0;
+      while (k < ws.length - 1 && x >= ws[k]) { x -= ws[k]; k++; }
+      pick = can[k];
+    }
+    for (const i of can) avail[i]--;
+    hands[seats[pick]].push(id);
+    need[pick]--;
   }
   return need.every((n) => n === 0) ? hands : null;
 }
@@ -255,6 +275,7 @@ export function mcStateFrom(inp: {
     seat, level, hand: [...hand], counts: [...counts],
     unseen: tracker.unseen(hand, inp.partnerHand ?? null),
     known: tracker.seats.map((r) => [...r.known]),
+    lacks: tracker.seats.map((r) => [...r.lacks]),
     finishOrder,
     lastPlay: target && targetSeat !== null ? { seat: targetSeat, combo: target } : null,
     passCount: target ? passCount : 0,

@@ -1,10 +1,16 @@
 // 记牌器：从某个座位的视角，记录所有公开信息并推算外面的牌。
-// 只使用该玩家本来就能知道的信息（自己的手牌、公开出牌、不出、进贡/还贡的牌、自己出完后看到的对家手牌）。
-import { ALL_IDS, card, cardValue, isWild, BIG_JOKER, SMALL_JOKER } from './cards';
+// 只使用该玩家本来就能知道的信息（自己的手牌、公开出牌、不出、进贡/还贡/抗贡、自己出完后看到的对家手牌）。
+import { ALL_IDS, card, cardValue, isWild, value, BIG_JOKER, SMALL_JOKER } from './cards';
 import type { Combo, ComboType } from './combo';
 import type { GameEvent } from './game';
 
-export interface PassRecord { type: ComboType; value: number; size: number }
+const BIG_JOKER_IDS = ALL_IDS.filter((id) => card(id).rank === BIG_JOKER);
+
+export interface PassRecord {
+  type: ComboType; value: number; size: number;
+  /** 面对的是谁出的牌（面对搭档的牌不出是让牌，不能说明缺牌） */
+  seat: number;
+}
 
 export interface SeatRecord {
   /** 出过的牌组（按时间顺序） */
@@ -13,15 +19,23 @@ export interface SeatRecord {
   leads: ComboType[];
   /** 面对哪些牌选择了“不出” */
   passes: PassRecord[];
-  /** 确定在他手里的牌（进贡/还贡时公开、且还没打出） */
+  /** 确定在他手里的牌（进贡/还贡时公开、单下抗贡的两张大王，且还没打出） */
   known: Set<number>;
+  /**
+   * 确定不在他手里的牌（硬约束，不是推测）：
+   * 进贡必须交最大的牌（逢人配除外），所以进贡者当时没有比贡牌更大的非逢人配牌；
+   * 抗贡时两张大王都在进贡方手里，其他人没有大王。
+   */
+  lacks: Set<number>;
+  /** 这一局进贡交出的牌（没有进贡为 null） */
+  tributed: number | null;
   /** 剩余张数 */
   count: number;
   /** 名次，0 表示还没出完 */
   place: number;
 }
 
-const newSeat = (): SeatRecord => ({ plays: [], leads: [], passes: [], known: new Set(), count: 27, place: 0 });
+const newSeat = (): SeatRecord => ({ plays: [], leads: [], passes: [], known: new Set(), lacks: new Set(), tributed: null, count: 27, place: 0 });
 
 export class CardTracker {
   level = 2;
@@ -45,8 +59,25 @@ export class CardTracker {
         this.history = [];
         this.lastPlay = null;
         break;
+      case 'antiTribute': {
+        // 抗贡：进贡方（一人或两人）合计有两张大王
+        const givers = new Set(e.seats);
+        for (let s = 0; s < 4; s++) {
+          if (givers.has(s)) continue;
+          for (const id of BIG_JOKER_IDS) this.seats[s].lacks.add(id);
+        }
+        if (e.seats.length === 1) for (const id of BIG_JOKER_IDS) this.seats[e.seats[0]].known.add(id);
+        break;
+      }
       case 'tribute':
-        for (const t of e.list) this.move(t.from, t.to, t.card);
+        for (const t of e.list) {
+          // 贡牌是他当时最大的非逢人配牌：比它大的非逢人配牌都不在他手里
+          const v = cardValue(t.card, this.level);
+          const rec = this.seats[t.from];
+          rec.tributed = t.card;
+          for (const id of ALL_IDS) if (!isWild(id, this.level) && cardValue(id, this.level) > v) rec.lacks.add(id);
+          this.move(t.from, t.to, t.card);
+        }
         break;
       case 'returnTribute':
         this.move(e.from, e.to, e.card);
@@ -67,7 +98,7 @@ export class CardTracker {
       case 'pass':
         if (this.lastPlay) {
           const c = this.lastPlay.combo;
-          this.seats[e.seat].passes.push({ type: c.type, value: c.value, size: c.cards.length });
+          this.seats[e.seat].passes.push({ type: c.type, value: c.value, size: c.cards.length, seat: this.lastPlay.seat });
         }
         this.history.push({ seat: e.seat, combo: null });
         break;
@@ -86,6 +117,7 @@ export class CardTracker {
     this.seats[to].count++;
     this.seats[from].known.delete(id);
     this.seats[to].known.add(id);
+    this.seats[to].lacks.delete(id);
   }
 
   /**
@@ -122,3 +154,32 @@ export function unseenStat(ids: number[], level: number): UnseenStat {
 }
 
 export const JOKER_RANKS = [SMALL_JOKER, BIG_JOKER];
+
+/** 外面能否用同类型的牌压过 */
+export function sameTypeBeatable(c: Pick<Combo, 'type' | 'value'>, st: UnseenStat, level: number): boolean {
+  const nat = (r: number) => st.byRank.get(r) ?? 0;
+  const v = (r: number) => value(r, level);
+  switch (c.type) {
+    case 'single':
+      return st.topValue > c.value;
+    case 'pair':
+      if (st.wilds >= 2 && 15 > c.value) return true;
+      for (const r of [SMALL_JOKER, BIG_JOKER]) if (nat(r) >= 2 && r > c.value) return true;
+      for (let r = 2; r <= 14; r++) if (v(r) > c.value && nat(r) >= 1 && nat(r) + st.wilds >= 2) return true;
+      return false;
+    case 'triple': case 'fullhouse':
+      for (let r = 2; r <= 14; r++) if (v(r) > c.value && nat(r) >= 1 && nat(r) + st.wilds >= 3) return true;
+      return false;
+    case 'straight': case 'tube': case 'plate': {
+      const [len, mult] = c.type === 'straight' ? [5, 1] : c.type === 'tube' ? [3, 2] : [2, 3];
+      for (let start = c.value + 1; start + len - 1 <= 14; start++) {
+        let need = 0;
+        for (let p = 0; p < len; p++) need += Math.max(0, mult - nat(start + p));
+        if (need <= st.wilds) return true;
+      }
+      return false;
+    }
+    default:
+      return false;
+  }
+}

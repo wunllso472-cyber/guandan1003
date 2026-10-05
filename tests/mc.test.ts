@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DECK, ALL_IDS, type Suit } from '../shared/cards';
 import { parseCombos } from '../shared/combo';
-import { monteCarlo, type MCState } from '../shared/mc';
+import { determinize, monteCarlo, type MCState } from '../shared/mc';
 
 function ids(spec: string, used = new Set<number>()): number[] {
   return spec.split(/\s+/).filter(Boolean).map((t) => {
@@ -45,5 +45,23 @@ describe('蒙特卡洛模拟', () => {
     const r = monteCarlo(st, [parseCombos([hand[0]], 2)[0]], 1e9, 30, 9);
     expect(r.samples).toBe(30);
     expect(r.scores[0]).toBeLessThan(0); // 下家必然走掉头游
+  });
+
+  it('确定不在某人手里的牌（进贡约束、抗贡）不会分给他', () => {
+    const hand = ids('S3 S4');
+    const unseen = ALL_IDS.filter((id) => !hand.includes(id));
+    // 下家进贡过 9：比 9 大的非逢人配牌都不在他手里（级牌 2，逢人配为红桃 2）
+    const big = unseen.filter((id) => DECK[id].rank > 9 && !(DECK[id].suit === 'H' && DECK[id].rank === 2) || (DECK[id].rank === 2 && DECK[id].suit !== 'H'));
+    const st = state(hand, [2, 30, 34, 40], { lacks: [[], big, [], []] });
+    let ok = 0;
+    for (let seed = 1; seed <= 50; seed++) {
+      const h = determinize(st, seed);
+      if (!h) continue;
+      ok++;
+      expect(h[1].length).toBe(30);
+      expect(h[1].some((id) => big.includes(id))).toBe(false);
+      expect(h[2].length + h[3].length).toBe(74);
+    }
+    expect(ok).toBe(50);
   });
 });

@@ -44,6 +44,56 @@ describe('记牌器', () => {
     expect(unseen.includes(played[0])).toBe(false);
   });
 
+  it('进贡：进贡者没有比贡牌大的非逢人配牌（硬约束），还贡得到的牌除外', () => {
+    const used = new Set<number>();
+    const tr = setup(5);
+    const [sa] = ids('SA', used);
+    tr.apply({ type: 'tribute', list: [{ from: 1, to: 2, card: sa }] });
+    const lacks = tr.seats[1].lacks;
+    expect(tr.seats[1].tributed).toBe(sa);
+    // 级牌 5（非红桃）和大小王都比 A 大
+    expect([...lacks].some((id) => card(id).rank === 5 && card(id).suit === 'S')).toBe(true);
+    expect([...lacks].filter((id) => card(id).rank >= 16).length).toBe(4);
+    // 逢人配（红桃 5）不受限制；同点数的 A 也不受限制
+    expect([...lacks].some((id) => card(id).rank === 5 && card(id).suit === 'H')).toBe(false);
+    expect([...lacks].some((id) => card(id).rank === 14)).toBe(false);
+    const adv = advise({ seat: 0, hand: ids('S3 C4', used), level: 5, target: null, targetSeat: null, counts: [2, 26, 28, 27], tracker: tr });
+    expect(adv.facts.join()).toContain('下家进贡了♠A');
+  });
+
+  it('抗贡：单下时进贡者确定有两张大王，其他人没有大王', () => {
+    const tr = setup(2);
+    tr.apply({ type: 'antiTribute', seats: [3] });
+    const bjs = DECK.filter((c) => c.rank === 17).map((c) => c.id);
+    for (const id of bjs) {
+      expect(tr.seats[3].known.has(id)).toBe(true);
+      for (const s of [0, 1, 2]) expect(tr.seats[s].lacks.has(id)).toBe(true);
+    }
+  });
+
+  it('抗贡：双下时大王在两个进贡者之间，另一队没有大王', () => {
+    const tr = setup(2);
+    tr.apply({ type: 'antiTribute', seats: [1, 3] });
+    const bjs = DECK.filter((c) => c.rank === 17).map((c) => c.id);
+    for (const id of bjs) {
+      expect(tr.seats[2].lacks.has(id)).toBe(true);
+      expect(tr.seats[1].lacks.has(id) || tr.seats[1].known.has(id)).toBe(false);
+    }
+  });
+
+  it('面对搭档的牌不出是让牌，不推断缺牌', () => {
+    const used = new Set<number>();
+    const tr = setup(2);
+    tr.apply({ type: 'turn', seat: 1, lead: true });
+    tr.apply({ type: 'play', seat: 1, combo: parseCombos(ids('S9', used), 2)[0], left: 26 });
+    tr.apply({ type: 'pass', seat: 2 });
+    tr.apply({ type: 'pass', seat: 3 }); // 下家（座位 1）的搭档：让牌
+    const adv = advise({ seat: 0, hand: ids('S3 C4', used), level: 2, target: parseCombos(ids('C9', used), 2)[0], targetSeat: 1, counts: [2, 26, 27, 27], tracker: tr });
+    const txt = adv.inferred.filter((x) => x.text.includes('曾选择不出')).map((x) => x.who);
+    expect(txt).toContain('partner');
+    expect(txt).not.toContain('left');
+  });
+
   it('大小王都出完后，提示理由会说明级牌最大', () => {
     const used = new Set<number>();
     const tr = setup(5);

@@ -2,6 +2,7 @@
 import { card, isWild, value, cardValue, BIG_JOKER, SMALL_JOKER } from './cards';
 import { bombLevel, chainRank, isBomb, parseCombos, type Combo, type ComboType } from './combo';
 import { findAllPlays } from './finder';
+import { sameTypeBeatable, type UnseenStat } from './tracker';
 
 // ---------- 拆牌 ----------
 
@@ -10,6 +11,36 @@ interface Part { rank: number; n: number }
 interface Group { type: ComboType; parts: Part[]; wild: number; value: number }
 
 const CHAIN_DEFS: [ComboType, number, number][] = [['straight', 5, 1], ['tube', 3, 2], ['plate', 2, 3]];
+
+/**
+ * 结合外面的牌评估组合（教材“手数 − 控制手数”）：外面同类压不住的组合是控制牌，几乎不占手数。
+ * 只在传入外面的牌（UnseenStat）时生效；评估用开关和分量。
+ */
+export const splitControl = {
+  enabled: true,
+  cost: 0.4,
+  /**
+   * group：外面的牌只用来决定怎么拆，返回的评分仍按原代价（跟牌、出牌的取舍不变）；
+   * cost：评分也按控制牌计算（实测 2000 局让顾问明显变差：打出控制牌显得“不划算”，不再用大牌抢出牌权）。
+   */
+  mode: 'group' as 'group' | 'cost',
+};
+
+type CostFn = (type: ComboType, v: number, size?: number) => number;
+
+/** 拆牌代价函数：传入外面的牌时，外面同类压不住的非炸弹组合代价降到 splitControl.cost */
+function costFn(level: number, st?: UnseenStat): CostFn {
+  if (!st || !splitControl.enabled) return comboCost;
+  const memo = new Map<string, boolean>();
+  return (type, v, size = 0) => {
+    const base = comboCost(type, v, size);
+    if (type === 'bomb' || type === 'straightflush' || type === 'jokerbomb') return base;
+    const k = type + v;
+    let beat = memo.get(k);
+    if (beat === undefined) { beat = sameTypeBeatable({ type, value: v }, st, level); memo.set(k, beat); }
+    return beat ? base : Math.min(base, splitControl.cost);
+  };
+}
 
 function comboCost(type: ComboType, v: number, size = 0): number {
   switch (type) {
@@ -29,7 +60,7 @@ function comboCost(type: ComboType, v: number, size = 0): number {
 type WildPlan = number[]; // 每个元素是被补的 rank，0 表示单独使用
 
 /** 按给定的逢人配去向，把散牌分组并计算代价。 */
-function groupLeaf(counts: number[], plan: WildPlan, level: number): { score: number; groups: Group[] } {
+function groupLeaf(counts: number[], plan: WildPlan, level: number, cost: CostFn): { score: number; groups: Group[] } {
   const v = (r: number) => value(r, level);
   const add = new Map<number, number>();
   let loose = 0;
@@ -68,13 +99,13 @@ function groupLeaf(counts: number[], plan: WildPlan, level: number): { score: nu
   for (const p of pairs) groups.push({ type: 'pair', parts: [p], wild: wildOf(p), value: v(p.rank) });
   for (const p of singles) groups.push({ type: 'single', parts: [p], wild: 0, value: v(p.rank) });
   let score = 0;
-  for (const g of groups) score += comboCost(g.type, g.value, g.parts.reduce((a, p) => a + p.n, 0) + g.wild);
+  for (const g of groups) score += cost(g.type, g.value, g.parts.reduce((a, p) => a + p.n, 0) + g.wild);
   return { score, groups };
 }
 
 /** 余下的散牌分组；逢人配在“补炸弹/补三张/补对子/补单张/单独使用”之间取最优。 */
-function leaf(counts: number[], wilds: number, level: number): { score: number; groups: Group[] } {
-  if (wilds === 0) return groupLeaf(counts, [], level);
+function leaf(counts: number[], wilds: number, level: number, cost: CostFn): { score: number; groups: Group[] } {
+  if (wilds === 0) return groupLeaf(counts, [], level, cost);
   const v = (r: number) => value(r, level);
   // 每类只取最小和最大的点数作候选，控制枚举量
   const byCount = (k: (c: number) => boolean) => {
@@ -86,7 +117,7 @@ function leaf(counts: number[], wilds: number, level: number): { score: number; 
   const targets = [0, ...byCount((c) => c >= 4), ...byCount((c) => c === 3), ...byCount((c) => c === 2), ...byCount((c) => c === 1)];
   let best: { score: number; groups: Group[] } | null = null;
   const tryPlan = (plan: WildPlan) => {
-    const r = groupLeaf(counts, plan, level);
+    const r = groupLeaf(counts, plan, level, cost);
     if (!best || r.score < best.score - 1e-9) best = r;
   };
   for (const a of targets) {
@@ -98,11 +129,11 @@ function leaf(counts: number[], wilds: number, level: number): { score: number; 
 
 interface SearchResult { score: number; chains: ChainSpec[]; groups: Group[] }
 
-function search(counts: number[], wilds: number, level: number, minKey: number, memo: Map<string, SearchResult>, depth: number): SearchResult {
+function search(counts: number[], wilds: number, level: number, minKey: number, memo: Map<string, SearchResult>, depth: number, cost: CostFn): SearchResult {
   const key = counts.join(',') + '|' + wilds + '|' + minKey;
   const hit = memo.get(key);
   if (hit) return hit;
-  const lf = leaf(counts, wilds, level);
+  const lf = leaf(counts, wilds, level, cost);
   let best: SearchResult = { score: lf.score, chains: [], groups: lf.groups };
   if (depth < 5) {
     CHAIN_DEFS.forEach(([type, len, mult], ti) => {
@@ -125,8 +156,8 @@ function search(counts: number[], wilds: number, level: number, minKey: number, 
           const r = chainRank(start, p);
           next[r] = (next[r] ?? 0) - Math.min(mult, next[r] ?? 0);
         }
-        const sub = search(next, wilds - need, level, k, memo, depth + 1);
-        const score = sub.score + comboCost(type, start);
+        const sub = search(next, wilds - need, level, k, memo, depth + 1, cost);
+        const score = sub.score + cost(type, start);
         if (score < best.score - 1e-9) {
           best = { score, chains: [{ type, start, len, mult }, ...sub.chains], groups: sub.groups };
         }
@@ -139,8 +170,9 @@ function search(counts: number[], wilds: number, level: number, minKey: number, 
 
 export interface Split { score: number; combos: Combo[] }
 
-/** 计算手牌的最优拆分。 */
-export function bestSplit(hand: number[], level: number): Split {
+/** 计算手牌的最优拆分。unseen 为外面还没出现的牌：传入时外面压不住的组合按控制牌计（见 splitControl）。 */
+export function bestSplit(hand: number[], level: number, unseen?: UnseenStat): Split {
+  const cost = costFn(level, unseen);
   const wildIds = hand.filter((id) => isWild(id, level));
   const naturals = hand.filter((id) => !isWild(id, level));
 
@@ -171,9 +203,9 @@ export function bestSplit(hand: number[], level: number): Split {
     for (const [r, ids] of pool) counts[r] = ids.length;
     for (let r = 0; r <= BIG_JOKER; r++) counts[r] = counts[r] ?? 0;
     const wildsLeft = wildIds.filter((id) => !used.has(id));
-    const res = search(counts, wildsLeft.length, level, 0, new Map(), 0);
-    let score = res.score + pre.reduce((a, c) => a + comboCost(c.type, c.value), 0);
-    if (hasJokerBomb) score += comboCost('jokerbomb', 0);
+    const res = search(counts, wildsLeft.length, level, 0, new Map(), 0, cost);
+    let score = res.score + pre.reduce((a, c) => a + cost(c.type, c.value), 0);
+    if (hasJokerBomb) score += cost('jokerbomb', 0);
     if (best && score >= best.score - 1e-9) continue;
 
     // 落实成具体的牌
@@ -202,6 +234,10 @@ export function bestSplit(hand: number[], level: number): Split {
       if (c.type === 'straight' && parseCombos(c.cards, level).some((x) => x.type === 'straightflush')) c.type = 'straightflush';
     }
     best = { score, combos };
+  }
+  // 只用来选拆法时，评分换回原代价，与不结合外面的牌时可比
+  if (unseen && splitControl.enabled && splitControl.mode === 'group') {
+    return { score: best!.combos.reduce((a, c) => a + comboCost(c.type, c.value, c.cards.length), 0), combos: best!.combos };
   }
   return best!;
 }
@@ -258,6 +294,8 @@ export interface AIContext {
   targetSeat: number | null;
   /** 每个座位剩余张数（已出完为 0） */
   handCounts: number[];
+  /** 外面还没出现的牌（记牌器）；传入时拆牌按控制牌评估，不传时与原电脑相同 */
+  unseen?: UnseenStat;
 }
 
 const partnerOf = (s: number) => (s + 2) % 4;
@@ -269,8 +307,8 @@ function leadKey(c: Combo): number {
 
 /** 首出时的候选顺序（提示也用）。 */
 export function leadOptions(ctx: AIContext): Combo[] {
-  const { hand, level, seat, handCounts } = ctx;
-  const split = bestSplit(hand, level);
+  const { hand, level, seat, handCounts, unseen } = ctx;
+  const split = bestSplit(hand, level, unseen);
   if (split.combos.length === 1) return split.combos;
   const nonBomb = split.combos.filter((c) => !isBomb(c)).sort((a, b) => leadKey(a) - leadKey(b));
   const bombs = split.combos.filter(isBomb).sort((a, b) => bombLevel(a) - bombLevel(b) || a.value - b.value);
@@ -283,7 +321,7 @@ export function leadOptions(ctx: AIContext): Combo[] {
   if (pc === 1 || pc === 2) {
     const t: ComboType = pc === 1 ? 'single' : 'pair';
     const baseHands = handsOf(split);
-    const keeps = (c: Combo) => (handsOf(bestSplit(without(hand, c.cards), level)) < baseHands ? 0 : 1);
+    const keeps = (c: Combo) => (handsOf(bestSplit(without(hand, c.cards), level, unseen)) < baseHands ? 0 : 1);
     // 下家也只剩 1 张时，小单张会先被下家接走，改送大一点的（不超过 A）
     const nextAlsoOne = pc === 1 && handCounts[(seat + 1) % 4] === 1;
     const byValue = (a: Combo, b: Combo) => (nextAlsoOne ? (b.value <= 14 ? b.value : 0) - (a.value <= 14 ? a.value : 0) : a.value - b.value);
@@ -313,8 +351,8 @@ const handsOf = (split: Split) => split.combos.filter((c) => !isBomb(c)).length;
 
 /** 跟牌候选，按代价从小到大。 */
 export function followOptions(ctx: AIContext): Scored[] {
-  const { hand, level, target } = ctx;
-  const baseSplit = bestSplit(hand, level);
+  const { hand, level, target, unseen } = ctx;
+  const baseSplit = bestSplit(hand, level, unseen);
   const base = baseSplit.score;
   const baseHands = handsOf(baseSplit);
   const groups = baseSplit.combos.map((x) => x.cards);
@@ -323,7 +361,7 @@ export function followOptions(ctx: AIContext): Scored[] {
   const scored = cands.map((c0) => {
     const combo = preferLooseCards(c0, hand, level, groups);
     const rest = without(hand, combo.cards);
-    const split = rest.length ? bestSplit(rest, level) : null;
+    const split = rest.length ? bestSplit(rest, level, unseen) : null;
     const s = split ? split.score : -10;
     const delta = s - base + (isBomb(combo) ? 1.2 + bombLevel(combo) * 0.05 : 0) + combo.value * 0.01;
     const breaksChain = !!split && !isBomb(combo) && combo.cards.some((id) => chainCards.has(id)) && handsOf(split) >= baseHands;
@@ -356,7 +394,7 @@ function decide(ctx: AIContext): Combo | null {
 
   const bombs = opts.filter((o) => isBomb(o.combo));
   if (!bombs.length) return null;
-  const restCombos = bestSplit(without(hand, bombs[0].combo.cards), ctx.level).combos.filter((c) => !isBomb(c)).length;
+  const restCombos = bestSplit(without(hand, bombs[0].combo.cards), ctx.level, ctx.unseen).combos.filter((c) => !isBomb(c)).length;
   const bigTarget = !isBomb(target) && target.value >= 14;
   if (oppLeft <= 8 || restCombos <= 2 || (bigTarget && hand.length <= 15)) {
     if (isBomb(target) && oppLeft > 8 && restCombos > 2) return null;

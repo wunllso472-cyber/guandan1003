@@ -3,7 +3,7 @@ import { card, cardValue, isWild, rankName, value, BIG_JOKER, SMALL_JOKER, type 
 import { bombLevel, comboName, isBomb, type Combo } from './combo';
 import { findAllPlays } from './finder';
 import { bestSplit, aiPlay, preferLooseCards } from './ai';
-import { CardTracker, unseenStat, type UnseenStat } from './tracker';
+import { CardTracker, sameTypeBeatable, unseenStat, type UnseenStat } from './tracker';
 import { evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
 import { BOOK_RULES, bookGuidance, bookHits, bookState, type BookInput } from './rulebook';
 import { profileConfidence, profileSeats } from './inference';
@@ -108,35 +108,6 @@ function jokerBombPossible(st: UnseenStat): boolean {
   return (st.byRank.get(SMALL_JOKER) ?? 0) === 2 && (st.byRank.get(BIG_JOKER) ?? 0) === 2;
 }
 
-/** 外面能否用同类型的牌压过 */
-function sameTypeBeatable(c: Combo, st: UnseenStat, level: number): boolean {
-  const nat = (r: number) => st.byRank.get(r) ?? 0;
-  const v = (r: number) => value(r, level);
-  switch (c.type) {
-    case 'single':
-      return st.topValue > c.value;
-    case 'pair':
-      if (st.wilds >= 2 && 15 > c.value) return true;
-      for (const r of [SMALL_JOKER, BIG_JOKER]) if (nat(r) >= 2 && r > c.value) return true;
-      for (let r = 2; r <= 14; r++) if (v(r) > c.value && nat(r) >= 1 && nat(r) + st.wilds >= 2) return true;
-      return false;
-    case 'triple': case 'fullhouse':
-      for (let r = 2; r <= 14; r++) if (v(r) > c.value && nat(r) >= 1 && nat(r) + st.wilds >= 3) return true;
-      return false;
-    case 'straight': case 'tube': case 'plate': {
-      const [len, mult] = c.type === 'straight' ? [5, 1] : c.type === 'tube' ? [3, 2] : [2, 3];
-      for (let start = c.value + 1; start + len - 1 <= 14; start++) {
-        let need = 0;
-        for (let p = 0; p < len; p++) need += Math.max(0, mult - nat(start + p));
-        if (need <= st.wilds) return true;
-      }
-      return false;
-    }
-    default:
-      return false;
-  }
-}
-
 export function controlOf(c: Combo, st: UnseenStat, level: number): Control {
   if (c.type === 'jokerbomb') return 'unbeatable';
   if (isBomb(c)) {
@@ -174,7 +145,11 @@ export function collectFacts(inp: AdviceInput, st: UnseenStat): { facts: string[
   for (let s = 0; s < 4; s++) {
     if (s === seat) continue;
     const known = [...tracker.seats[s].known];
-    if (known.length) facts.push(`${WHO_CN[WHO[rel(seat, s)]]}手里确定有：${known.map((id) => cardLabel(id, level)).join('、')}（进贡/还贡时可知）`);
+    if (known.length) facts.push(`${WHO_CN[WHO[rel(seat, s)]]}手里确定有：${known.map((id) => cardLabel(id, level)).join('、')}（进贡/还贡/抗贡时可知）`);
+    const tributed = tracker.seats[s].tributed;
+    if (tributed !== null && !tracker.seats[s].place) {
+      facts.push(`${WHO_CN[WHO[rel(seat, s)]]}进贡了${cardLabel(tributed, level)}，手里没有比它大的牌（逢人配和还贡得到的牌除外）`);
+    }
   }
 
   const inferred: Inference[] = [];
@@ -187,6 +162,7 @@ export function collectFacts(inp: AdviceInput, st: UnseenStat): { facts: string[
     const seen = new Set<string>();
     for (const p of rec.passes.slice(-4)) {
       if (p.type === 'bomb' || p.type === 'straightflush' || p.type === 'jokerbomb') continue;
+      if (p.seat % 2 === s % 2) continue; // 面对搭档的牌不出是让牌，不说明缺牌
       const k = p.type;
       if (seen.has(k)) continue;
       seen.add(k);
@@ -226,7 +202,7 @@ export function advise(inp: AdviceInput): Advice {
   const partner = (seat + 2) % 4, next = (seat + 1) % 4, prev = (seat + 3) % 4;
   const st = unseenStat(tracker.unseen(hand, inp.partnerHand ?? null), level);
   const { facts, inferred } = collectFacts(inp, st);
-  const base = bestSplit(hand, level);
+  const base = bestSplit(hand, level, st);
   const baseHands = base.combos.filter((x) => !isBomb(x)).length;
   const leading = !target;
   const gateCase = leading && counts[partner] === 1 && counts[next] === 1;
@@ -250,7 +226,7 @@ export function advise(inp: AdviceInput): Advice {
     const c = preferLooseCards(c0, hand, level, base.combos.map((x) => x.cards));
     const used = new Set(c.cards);
     const rest = hand.filter((id) => !used.has(id));
-    const split = rest.length ? bestSplit(rest, level) : { score: -10, combos: [] as Combo[] };
+    const split = rest.length ? bestSplit(rest, level, st) : { score: -10, combos: [] as Combo[] };
     const take = new Map<number, number>();
     for (const id of c.cards) if (!isWild(id, level)) take.set(card(id).rank, (take.get(card(id).rank) ?? 0) + 1);
     // 同花顺借用了另一组炸弹里的牌也算拆炸（普通炸弹本身就是那一组，不算）
@@ -357,7 +333,7 @@ export function advise(inp: AdviceInput): Advice {
   }
 
   // 以电脑的决策为基础：电脑会出的那手优先，只有强规则（对家/对手快出完、一手出完）才会推翻
-  const ai = aiPlay({ seat, hand, level, target, targetSeat, handCounts: counts });
+  const ai = aiPlay({ seat, hand, level, target, targetSeat, handCounts: counts, unseen: st });
   const aiKey = ai ? [...ai.cards].sort().join(',') : 'pass';
   for (const o of options) {
     const k = o.combo ? [...o.combo.cards].sort().join(',') : 'pass';

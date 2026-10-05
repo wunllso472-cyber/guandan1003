@@ -766,8 +766,17 @@ export class TableScene extends Container {
       ['方言彩蛋', () => (sound.settings.dialect ? '开' : '关'), () => sound.save({ dialect: !sound.settings.dialect })],
       ['智能选牌', () => (prefs.autoPick ? '开' : '关'), () => savePrefs({ autoPick: !prefs.autoPick })],
     ];
+    const setLevel = this.client.setAiLevel?.bind(this.client);
+    if (setLevel) {
+      rows.push(['电脑难度', () => (prefs.aiLevel === 'hard' ? '困难' : '普通'), () => {
+        savePrefs({ aiLevel: prefs.aiLevel === 'hard' ? 'normal' : 'hard' });
+        setLevel(prefs.aiLevel);
+      }]);
+    }
+    // 行数多时整体上移、行距收紧
+    const step = rows.length > 6 ? 54 : 62;
     rows.forEach(([label, value, toggle], i) => {
-      const y = -180 + i * 62;
+      const y = (rows.length > 6 ? -200 : -180) + i * step;
       this.addLabel(box, label, -170, y, 26, 0x5a2e10, 0);
       const btn = new Button(value(), 'green', 130, 50, () => {
         toggle();

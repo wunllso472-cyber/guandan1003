@@ -2,7 +2,7 @@
 // 托管在牌桌控制器里同步执行（单机在浏览器，联机在服务端），所以模拟限定较短的时间预算；
 // 时间内样本不够时直接用顾问的首选（顾问单独对打也略好于原电脑出牌）。
 import { advise, type Advice, type AdviceInput } from './advisor';
-import { mcStateFrom, monteCarlo, monteCarloShallow, type MCResult } from './mc';
+import { mcStateFrom, monteCarlo, monteCarloShallow, type MCResult, type MCState } from './mc';
 import type { Combo } from './combo';
 
 /** 场上剩余牌数不超过它时按残局模拟到整局结束 */
@@ -66,21 +66,44 @@ export function decisionLog(adv: Advice, source: DecisionLog['source'], chosenId
   };
 }
 
-/** 托管出一手牌（combo 为 null 表示不出），同时给出决策依据 */
-export function smartDecide(inp: AdviceInput, budgetMs: number, source: DecisionLog['source'] = 'auto', seed = Date.now() % 100000): { combo: Combo | null; log: DecisionLog | null } {
+type Decision = { combo: Combo | null; log: DecisionLog | null };
+
+/** 先用顾问给出候选；只有一个候选或不模拟时直接给出结果，否则返回要模拟的前几个候选 */
+function prepare(inp: AdviceInput, budgetMs: number, source: DecisionLog['source']) {
   const adv = advise(inp);
   const opts = adv.options;
-  if (!opts.length) return { combo: null, log: null };
-  if (opts.length === 1 || budgetMs <= 0) return { combo: opts[0].combo, log: decisionLog(adv, source, 0, 'advisor') };
-  const cfg = mcConfigFor(inp.counts);
-  const top = opts.slice(0, MC_K);
-  const run = cfg.mode === 'full' ? monteCarlo : monteCarloShallow;
-  const r = run(mcStateFrom(inp), top.map((o) => o.combo), budgetMs, cfg.samples, seed);
+  if (!opts.length) return { done: { combo: null, log: null } as Decision };
+  if (opts.length === 1 || budgetMs <= 0) return { done: { combo: opts[0].combo, log: decisionLog(adv, source, 0, 'advisor') } as Decision };
+  return { adv, cfg: mcConfigFor(inp.counts), top: opts.slice(0, MC_K) };
+}
+
+/** 按模拟结果选定出法（模拟失败或样本不够时用顾问首选） */
+function finish(adv: Advice, cfg: MCConfig, top: Advice['options'], r: MCResult | null, source: DecisionLog['source']): Decision {
+  if (!r) return { combo: top[0].combo, log: decisionLog(adv, source, 0, 'advisor') };
   const pick = pickByMC(r, cfg);
   const best = pick?.best ?? 0;
   const log = decisionLog(adv, source, best, !pick ? 'advisor' : best ? 'mc-override' : 'mc',
     { mode: cfg.mode, samples: r.samples, gain: pick?.gain ?? 0, scores: r.scores });
   return { combo: top[best].combo, log };
+}
+
+/** 托管出一手牌（combo 为 null 表示不出），同时给出决策依据；模拟在当前线程同步执行 */
+export function smartDecide(inp: AdviceInput, budgetMs: number, source: DecisionLog['source'] = 'auto', seed = Date.now() % 100000): Decision {
+  const p = prepare(inp, budgetMs, source);
+  if (p.done) return p.done;
+  const run = p.cfg.mode === 'full' ? monteCarlo : monteCarloShallow;
+  return finish(p.adv, p.cfg, p.top, run(mcStateFrom(inp), p.top.map((o) => o.combo), budgetMs, p.cfg.samples, seed), source);
+}
+
+/** 异步执行模拟（单机交给后台线程，避免界面卡顿）；超时或出错时返回 null */
+export type MCRunner = (st: MCState, moves: (Combo | null)[], budgetMs: number, maxSamples: number, mode: 'full' | 'shallow') => Promise<MCResult | null>;
+
+/** 与 smartDecide 相同的策略，模拟交给 run 异步执行 */
+export async function smartDecideAsync(inp: AdviceInput, budgetMs: number, run: MCRunner, source: DecisionLog['source'] = 'auto'): Promise<Decision> {
+  const p = prepare(inp, budgetMs, source);
+  if (p.done) return p.done;
+  const r = await run(mcStateFrom(inp), p.top.map((o) => o.combo), budgetMs, p.cfg.samples, p.cfg.mode).catch(() => null);
+  return finish(p.adv, p.cfg, p.top, r, source);
 }
 
 /** 托管出一手牌；null 表示不出 */

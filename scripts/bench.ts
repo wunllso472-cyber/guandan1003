@@ -7,13 +7,16 @@
 //   例：npx tsx scripts/bench.ts advisor ai 2000
 //
 // 每副牌两队交换座位各打一次（配对比较），抵消牌运差异。
+// GD_TRIBUTE=1：每局按随机的“上一局名次”先进贡/还贡（或抗贡）再开打；GD_NO_LACKS=1：mc 推测手牌时不用进贡/抗贡得到的硬约束。
 // 主指标是“每局净升级”：A 队赢一局记 +3/+2/+1（双上/一三/一四），输一局记 −3/−2/−1。
 import { GuandanGame, teamOf, partnerOf } from '../shared/game';
+import { shuffle } from '../shared/cards';
+import { smartReturn } from '../shared/tribute';
 import { aiPlay } from '../shared/ai';
 import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
-import { monteCarlo, monteCarloShallow, mcStateFrom } from '../shared/mc';
+import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf } from '../shared/mc';
 import { smartPlay } from '../shared/autoplay';
 import { writeFileSync } from 'node:fs';
 
@@ -30,6 +33,8 @@ const MC_MID_SAMPLES = Number(process.env.GD_MC_MID_SAMPLES ?? 30);
 const MC_MID_MARGIN = Number(process.env.GD_MC_MID_MARGIN ?? 0.2);
 
 export type Strategy = 'ai' | 'advisor' | 'jev' | 'mc' | 'auto';
+const TRIBUTE = process.env.GD_TRIBUTE === '1';
+const NO_LACKS = process.env.GD_NO_LACKS === '1';
 const AUTO_BUDGET = Number(process.env.GD_AUTO_BUDGET ?? 300);
 type Ctx = { seat: number; g: GuandanGame; tracker: CardTracker };
 
@@ -41,6 +46,7 @@ async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Co
   if (strategy === 'auto') return smartPlay({ seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker }, AUTO_BUDGET);
   const inp = { seat, hand: g.hands[seat], level: g.level, target, targetSeat, counts: g.handCounts(), tracker };
   const adv = advise(inp);
+  const mcStateFrom = (x: typeof inp) => ({ ...mcStateOf(x), ...(NO_LACKS ? { lacks: undefined } : {}) });
   const onTable = g.handCounts().reduce((a, b) => a + b, 0);
   if (strategy === 'mc' && adv.options.length > 1 && onTable <= MC_MAXCARDS) {
     const top = adv.options.slice(0, MC_K);
@@ -89,7 +95,12 @@ export async function bench(a: Strategy, b: Strategy, n: number, seed = 200000, 
     g.levels = [2 + (Math.floor(i / 2) % 13), 2 + (Math.floor(i / 2) % 13)];
     const trackers = [0, 1, 2, 3].map((s) => new CardTracker(s));
     g.on((e) => trackers.forEach((t) => t.apply(e)));
+    if (TRIBUTE) g.prevOrder = shuffle([0, 1, 2, 3], seed + 7919 * Math.floor(i / 2));
     g.startRound(seed + Math.floor(i / 2));
+    while (g.phase === 'return') {
+      const pr = g.pendingReturns[0];
+      g.returnTribute(pr.from, smartReturn(g.hands[pr.from], g.level, teamOf(pr.from) === teamOf(pr.to)));
+    }
     let guard = 0;
     while (g.phase === 'play' && guard++ < 3000) {
       const s = g.turn;
@@ -146,6 +157,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('scripts/bench.ts')) {
     const list = process.env.GD_DISABLE_RULES === 'ALL' ? Object.keys(RULES) : process.env.GD_DISABLE_RULES.split(',');
     list.forEach((r) => disabledRules.add(r.trim()));
     console.log('停用规则：' + list.join(','));
+  }
+  // 评估用：GD_SPLIT_CTL=0 拆牌不结合外面的牌；GD_SPLIT_CTL=0.5 设置控制牌的代价
+  if (process.env.GD_SPLIT_CTL) {
+    const { splitControl } = await import('../shared/ai');
+    const v = Number(process.env.GD_SPLIT_CTL);
+    if (v <= 0) splitControl.enabled = false; else splitControl.cost = v;
+    if (process.env.GD_SPLIT_MODE) splitControl.mode = process.env.GD_SPLIT_MODE as 'group' | 'cost';
+    console.log(splitControl.enabled ? `控制牌代价 ${splitControl.cost}（${splitControl.mode}）` : '拆牌不结合外面的牌');
   }
   const parallel = Number(process.env.GD_PARALLEL ?? (a === 'jev' || b === 'jev' ? 4 : 1));
   const r = await bench(a as Strategy, b as Strategy, Number(n), Number(seed), parallel);

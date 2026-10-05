@@ -49,6 +49,8 @@ export interface GameClient {
   chat(kind: ChatKind, id: number, to?: number): string | null;
   /** 联机时向服务端请求 Jev 建议（单机没有此方法）；超时或失败返回 null */
   requestAdvice?(ctx: unknown, timeoutMs: number): Promise<{ ranking: string[]; confidence?: number } | null>;
+  /** 设置电脑座位难度（只有单机有此方法） */
+  setAiLevel?(level: 'normal' | 'hard'): void;
   nextRound(): void;
   restart(): void;
   dispose(): void;

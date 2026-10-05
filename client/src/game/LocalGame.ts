@@ -4,6 +4,8 @@ import type { Combo } from '@shared/combo';
 import type { ChatKind } from '@shared/chat';
 import type { Voice } from '@shared/protocol';
 import type { ClientEvent, GameClient, PlayerInfo } from './types';
+import { prefs } from './prefs';
+import { runMonteCarlo } from './mcClient';
 
 const AI_NAMES = ['阿强', '小美', '老王', '二丫', '大刘', '阿珍', '胖虎', '小雪', '铁柱', '翠花'];
 
@@ -23,6 +25,9 @@ export class LocalGame implements GameClient {
       { name: names[2], avatar: 3, isAI: true, voice: 'female' },
     ];
     this.table.on((e) => { for (const fn of this.listeners) fn(e); });
+    // 困难电脑的模拟放在后台线程，界面不卡
+    this.table.mcRunner = runMonteCarlo;
+    this.table.aiLevel = prefs.aiLevel;
   }
 
   get game() { return this.table.game; }
@@ -38,6 +43,7 @@ export class LocalGame implements GameClient {
   isAuto(seat: number) { return this.table.auto[seat]; }
   isOnline() { return true; }
   setAuto(on: boolean) { this.table.setAuto(this.mySeat, on); }
+  setAiLevel(level: 'normal' | 'hard') { this.table.aiLevel = level; }
   chat(kind: ChatKind, id: number, to?: number) { return this.table.chat(this.mySeat, kind, id, to); }
   play(cards: number[], combo?: Combo) { return this.table.play(this.mySeat, cards, combo); }
   pass() { return this.table.pass(this.mySeat); }
