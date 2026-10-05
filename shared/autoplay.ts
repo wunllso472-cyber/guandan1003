@@ -37,12 +37,15 @@ export function mcCandidates<T extends { combo: Combo | null }>(opts: T[], extra
  * 残局：模拟到整局结束；开局和中盘：模拟到本轮结束再用局面评分。
  * 结果比顾问首选好 margin 级以上才推翻首选（与 1002 局对打评估的设置一致）。
  */
-export const MC_END = { mode: 'full', samples: 40, minSamples: 15, margin: 0.25, label: '残局' } as const;
-export const MC_MID = { mode: 'shallow', samples: 30, minSamples: 12, margin: 0.4, label: '牌局' } as const;
-export type MCConfig = typeof MC_END | typeof MC_MID;
+export interface MCConfig { mode: 'full' | 'shallow'; samples: number; minSamples: number; margin: number; label: string }
+/** 评估用可调（scripts/bench.ts 的 GD_END_MARGIN、GD_MID_MARGIN 等） */
+export const MC_END: MCConfig = { mode: 'full', samples: 40, minSamples: 15, margin: 0.25, label: '残局' };
+export const MC_MID: MCConfig = { mode: 'shallow', samples: 30, minSamples: 12, margin: 0.4, label: '牌局' };
+/** 残局界限（评估用可调，默认 MC_MAXCARDS） */
+export const mcStage = { maxCards: MC_MAXCARDS };
 
 export function mcConfigFor(counts: number[]): MCConfig {
-  return counts.reduce((a, x) => a + x, 0) <= MC_MAXCARDS ? MC_END : MC_MID;
+  return counts.reduce((a, x) => a + x, 0) <= mcStage.maxCards ? MC_END : MC_MID;
 }
 
 /** 根据模拟结果决定是否推翻顾问首选：返回选中的候选下标和多赢的级数 */

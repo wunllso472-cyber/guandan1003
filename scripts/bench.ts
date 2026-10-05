@@ -16,8 +16,8 @@ import { aiPlay } from '../shared/ai';
 import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
-import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf, rolloutNoise, evalModel, EVAL_WEIGHTS_V1, type RolloutPolicy } from '../shared/mc';
-import { smartPlay, mcConfigFor, pickByMC, mcTies, mcCandidates, mcExtra } from '../shared/autoplay';
+import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf, rolloutNoise, evalModel, shallowDepth, EVAL_WEIGHTS_V1, type RolloutPolicy } from '../shared/mc';
+import { smartPlay, mcConfigFor, pickByMC, mcTies, mcCandidates, mcExtra, MC_END, MC_MID as MID_CFG, mcStage } from '../shared/autoplay';
 import { writeFileSync } from 'node:fs';
 
 const MC_K = Number(process.env.GD_MC_K ?? 4);
@@ -48,6 +48,13 @@ if (process.env.GD_NOISE) rolloutNoise.eps = Number(process.env.GD_NOISE);
 /** 模拟候选：GD_MC_EXTRA 在前 4 个之外补几个不同类型的候选；GD_MC_EQUAL_COST=1 按候选数减少样本，使总计算量与 4 个候选相同 */
 if (process.env.GD_MC_EXTRA) mcExtra.n = Number(process.env.GD_MC_EXTRA);
 const EQUAL_COST = process.env.GD_MC_EQUAL_COST === '1';
+/** 托管/mcjev 的模拟设置：GD_END_MARGIN、GD_MID_MARGIN 推翻顾问首选的门槛，GD_END_SAMPLES、GD_MID_SAMPLES 样本数，GD_STAGE_CARDS 残局界限 */
+if (process.env.GD_END_MARGIN) MC_END.margin = Number(process.env.GD_END_MARGIN);
+if (process.env.GD_MID_MARGIN) MID_CFG.margin = Number(process.env.GD_MID_MARGIN);
+if (process.env.GD_END_SAMPLES) MC_END.samples = Number(process.env.GD_END_SAMPLES);
+if (process.env.GD_MID_SAMPLES) MID_CFG.samples = Number(process.env.GD_MID_SAMPLES);
+if (process.env.GD_DEPTH) shallowDepth.tricks = Number(process.env.GD_DEPTH);
+if (process.env.GD_STAGE_CARDS) mcStage.maxCards = Number(process.env.GD_STAGE_CARDS);
 /** 中盘局面评分：默认第二版（加入控制牌特征）；GD_EVAL=v1 用第一版 */
 if (process.env.GD_EVAL === 'v1') { evalModel.version = 'v1'; evalModel.weights = EVAL_WEIGHTS_V1; }
 export const jevStats = { decisions: 0, ties: 0, calls: 0, adopted: 0, changed: 0, failed: 0 };

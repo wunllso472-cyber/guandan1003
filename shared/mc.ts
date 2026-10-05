@@ -416,7 +416,10 @@ export function evalPosition(hands: number[][], level: number, team: number, lea
   return f.reduce((s, v, i) => s + v * w[i + 1], w[0]);
 }
 
-/** 浅层推演：执行候选出法后，用简化出牌推演到这一轮结束，再给局面打分（本局已结束则用真实结果） */
+/** 中盘推演几轮后评分（评估用可调，默认 1 轮） */
+export const shallowDepth = { tricks: 1 };
+
+/** 浅层推演：执行候选出法后，用简化出牌推演到这一轮结束（共 shallowDepth.tricks 轮），再给局面打分（本局已结束则用真实结果） */
 function shallowRollout(st: MCState, hands: number[][], move: Combo | null, policy: RolloutPolicy, rand: () => number): number {
   const g = new GuandanGame();
   g.levels = [st.level, st.level];
@@ -428,19 +431,19 @@ function shallowRollout(st: MCState, hands: number[][], move: Combo | null, poli
   g.lastPlay = st.lastPlay ? { seat: st.lastPlay.seat, combo: st.lastPlay.combo } : null;
   g.passCount = st.passCount;
   let result: number | null = null;
-  let trickOver = false;
+  let tricks = 0;
   g.on((e) => {
     if (e.type === 'roundEnd') {
       const o = e.result.order;
       const up = [0, 3, 2, 1][o.indexOf(partnerOf(o[0]))];
       result = teamOf(o[0]) === teamOf(st.seat) ? up : -up;
     }
-    if (e.type === 'trickEnd') trickOver = true;
+    if (e.type === 'trickEnd') tricks++;
   });
   const err = move ? g.play(st.seat, move.cards, move) : g.pass(st.seat);
   if (err) return NaN;
   let guard = 0;
-  while (g.phase === 'play' && !trickOver && guard++ < 40) {
+  while (g.phase === 'play' && tricks < shallowDepth.tricks && guard++ < 40 * shallowDepth.tricks) {
     const s = g.turn;
     const c = policyPlay(policy, g, s, rand);
     const e = c ? g.play(s, c.cards, c) : g.pass(s);
