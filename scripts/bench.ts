@@ -16,7 +16,7 @@ import { aiPlay } from '../shared/ai';
 import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
-import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf } from '../shared/mc';
+import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf, rolloutNoise, type RolloutPolicy } from '../shared/mc';
 import { smartPlay, mcConfigFor, pickByMC, mcTies } from '../shared/autoplay';
 import { writeFileSync } from 'node:fs';
 
@@ -41,6 +41,10 @@ type Ctx = { seat: number; g: GuandanGame; tracker: CardTracker };
 const JEV_MIN_CONFIDENCE = 0.6;
 /** mcjev：GD_NO_JEV=1 时拿不准也不请 Jev（对照组，同时统计会请几次） */
 const NO_JEV = process.env.GD_NO_JEV === '1';
+/** mcjev 的推演方式：GD_ROLLOUT 残局（默认 ai）、GD_SHALLOW_ROLLOUT 中盘（默认 quick），可选 quick / ai / noisy；GD_NOISE 为 noisy 的随机程度 */
+const ROLLOUT = (process.env.GD_ROLLOUT ?? 'ai') as RolloutPolicy;
+const SHALLOW_ROLLOUT = (process.env.GD_SHALLOW_ROLLOUT ?? 'quick') as RolloutPolicy;
+if (process.env.GD_NOISE) rolloutNoise.eps = Number(process.env.GD_NOISE);
 export const jevStats = { decisions: 0, ties: 0, calls: 0, adopted: 0, changed: 0, failed: 0 };
 
 async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Combo | null> {
@@ -71,8 +75,8 @@ async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Co
     jevStats.decisions++;
     const cfg = mcConfigFor(g.handCounts());
     const top = adv.options.slice(0, MC_K);
-    const run = cfg.mode === 'full' ? monteCarlo : monteCarloShallow;
-    const r = run(mcStateFrom(inp), top.map((o) => o.combo), 1e9, cfg.samples, g.roundNo * 1000 + g.hands[seat].length);
+    const st = mcStateFrom(inp), moves = top.map((o) => o.combo), seed = g.roundNo * 1000 + g.hands[seat].length;
+    const r = cfg.mode === 'full' ? monteCarlo(st, moves, 1e9, cfg.samples, seed, ROLLOUT) : monteCarloShallow(st, moves, 1e9, cfg.samples, seed, SHALLOW_ROLLOUT);
     const mcPick = top[pickByMC(r, cfg)?.best ?? 0];
     const ties = mcTies(r, cfg).map((i) => top[i]);
     if (ties.length < 2) return mcPick.combo;

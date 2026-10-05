@@ -1,7 +1,7 @@
 // 蒙特卡洛模拟：按已知信息随机推测其他三家的手牌，把每个候选出法推演到本局结束，比较团队结果。
 // 只用玩家本来就能知道的信息（自己的手牌、已出的牌、剩余张数、进贡/还贡时亮过的牌）。
 import { GuandanGame, partnerOf, teamOf } from './game';
-import { bestSplit, aiPlay } from './ai';
+import { bestSplit, aiPlay, leadOptions, followOptions, type AIContext } from './ai';
 import { findAllPlays } from './finder';
 import { bombLevel, isBomb, type Combo, type ComboType } from './combo';
 import { card, cardValue, isWild, shuffle } from './cards';
@@ -181,16 +181,43 @@ function fitsExactly(c: Combo, hand: number[]): boolean {
   return true;
 }
 
-/** 推演时各家的出牌方式：quick 为简化版（快但弱），ai 为正式电脑出牌（慢但接近真实对局） */
-export type RolloutPolicy = 'quick' | 'ai';
+/**
+ * 推演时各家的出牌方式：quick 为简化版（快但弱），ai 为正式电脑出牌（慢但接近真实对局），
+ * noisy 为电脑出牌加随机：以 rolloutNoise.eps 的概率改出其他合理的选择（首出换成前几个候选之一；跟牌改为不出或换一手），
+ * 避免把对手当成和原电脑一模一样（对手风格不同时推演更稳）。
+ */
+export type RolloutPolicy = 'quick' | 'ai' | 'noisy';
 
-function policyPlay(policy: RolloutPolicy, g: GuandanGame, seat: number): Combo | null {
+/** noisy 推演的随机程度（评估用可调） */
+export const rolloutNoise = { eps: 0.2 };
+
+/** 推演用的随机数（每个推测牌局一个，所有候选出法共用同一串，比较公平） */
+export function rolloutRng(seed: number): () => number {
+  let r = (seed * 2246822519 + 1) >>> 0;
+  return () => { r = (r + 0x6d2b79f5) >>> 0; let t = Math.imul(r ^ (r >>> 15), 1 | r); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+function noisyPlay(g: GuandanGame, seat: number, rand: () => number): Combo | null {
+  const ctx: AIContext = { seat, hand: g.hands[seat], level: g.level, target: g.lastPlay?.combo ?? null, targetSeat: g.lastPlay?.seat ?? null, handCounts: g.handCounts() };
+  const base = aiPlay(ctx);
+  // 能一手出完时不随机
+  if (rand() >= rolloutNoise.eps || (base && base.cards.length === ctx.hand.length)) return base;
+  if (!ctx.target) {
+    const opts = leadOptions(ctx).slice(0, 3);
+    return opts[Math.floor(rand() * opts.length)] ?? base;
+  }
+  const alts: (Combo | null)[] = [null, ...followOptions(ctx).filter((o) => !isBomb(o.combo)).slice(0, 2).map((o) => o.combo)];
+  return alts[Math.floor(rand() * alts.length)];
+}
+
+function policyPlay(policy: RolloutPolicy, g: GuandanGame, seat: number, rand: () => number): Combo | null {
   if (policy === 'quick') return quickPlay(g, seat);
+  if (policy === 'noisy') return noisyPlay(g, seat, rand);
   return aiPlay({ seat, hand: g.hands[seat], level: g.level, target: g.lastPlay?.combo ?? null, targetSeat: g.lastPlay?.seat ?? null, handCounts: g.handCounts() });
 }
 
 /** 从当前局面开始，先执行候选出法，再推演到本局结束；返回我方净升级 */
-function rollout(st: MCState, hands: number[][], move: Combo | null, policy: RolloutPolicy): number {
+function rollout(st: MCState, hands: number[][], move: Combo | null, policy: RolloutPolicy, rand: () => number): number {
   const g = new GuandanGame();
   g.levels = [st.level, st.level];
   g.levelTeam = 0;
@@ -213,7 +240,7 @@ function rollout(st: MCState, hands: number[][], move: Combo | null, policy: Rol
   let guard = 0;
   while (g.phase === 'play' && guard++ < 400) {
     const s = g.turn;
-    const c = policyPlay(policy, g, s);
+    const c = policyPlay(policy, g, s, rand);
     const e = c ? g.play(s, c.cards, c) : g.pass(s);
     if (e) { if (g.lastPlay) g.pass(s); else g.play(s, [g.hands[s][0]]); }
   }
@@ -232,7 +259,7 @@ export function monteCarlo(st: MCState, moves: (Combo | null)[], budgetMs = 800,
     if (Date.now() - t0 > budgetMs && n >= 8) break;
     const hands = determinize(st, seed + k);
     if (!hands) continue;
-    const vals = moves.map((m) => rollout(st, hands, m, policy));
+    const vals = moves.map((m) => rollout(st, hands, m, policy, rolloutRng(seed + k)));
     if (vals.some((v) => Number.isNaN(v))) continue;
     vals.forEach((v, i) => (sums[i] += v));
     n++;
@@ -343,7 +370,7 @@ export function evalPosition(hands: number[][], level: number, team: number, lea
 }
 
 /** 浅层推演：执行候选出法后，用简化出牌推演到这一轮结束，再给局面打分（本局已结束则用真实结果） */
-function shallowRollout(st: MCState, hands: number[][], move: Combo | null): number {
+function shallowRollout(st: MCState, hands: number[][], move: Combo | null, policy: RolloutPolicy, rand: () => number): number {
   const g = new GuandanGame();
   g.levels = [st.level, st.level];
   g.levelTeam = 0;
@@ -368,7 +395,7 @@ function shallowRollout(st: MCState, hands: number[][], move: Combo | null): num
   let guard = 0;
   while (g.phase === 'play' && !trickOver && guard++ < 40) {
     const s = g.turn;
-    const c = quickPlay(g, s);
+    const c = policyPlay(policy, g, s, rand);
     const e = c ? g.play(s, c.cards, c) : g.pass(s);
     if (e) { if (g.lastPlay) g.pass(s); else g.play(s, [g.hands[s][0]]); }
   }
@@ -377,7 +404,7 @@ function shallowRollout(st: MCState, hands: number[][], move: Combo | null): num
 }
 
 /** 中盘模拟：同一批推测出的牌局上比较各候选（浅层推演 + 局面评分） */
-export function monteCarloShallow(st: MCState, moves: (Combo | null)[], budgetMs = 800, maxSamples = 100, seed = 1): MCResult {
+export function monteCarloShallow(st: MCState, moves: (Combo | null)[], budgetMs = 800, maxSamples = 100, seed = 1, policy: RolloutPolicy = 'quick'): MCResult {
   const t0 = Date.now();
   const sums = moves.map(() => 0);
   let n = 0;
@@ -385,7 +412,7 @@ export function monteCarloShallow(st: MCState, moves: (Combo | null)[], budgetMs
     if (Date.now() - t0 > budgetMs && n >= 8) break;
     const hands = determinize(st, seed + k);
     if (!hands) continue;
-    const vals = moves.map((m) => shallowRollout(st, hands, m));
+    const vals = moves.map((m) => shallowRollout(st, hands, m, policy, rolloutRng(seed + k)));
     if (vals.some((v) => Number.isNaN(v))) continue;
     vals.forEach((v, i) => (sums[i] += v));
     n++;

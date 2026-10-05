@@ -47,6 +47,17 @@ describe('蒙特卡洛模拟', () => {
     expect(r.scores[0]).toBeLessThan(0); // 下家必然走掉头游
   });
 
+  it('带随机的推演（noisy）：同一种子结果相同，能一手出完的出法仍然最好', () => {
+    const hand = ids('S9 C9');
+    const target = parseCombos(ids('D5 H5'), 2)[0];
+    const st = state(hand, [2, 10, 10, 10], { lastPlay: { seat: 1, combo: target } });
+    const moves = [parseCombos(hand, 2)[0], null];
+    const a = monteCarlo(st, moves, 1e9, 30, 5, 'noisy');
+    const b = monteCarlo(st, moves, 1e9, 30, 5, 'noisy');
+    expect(a.scores).toEqual(b.scores);
+    expect(a.scores[0]).toBeGreaterThan(a.scores[1]);
+  });
+
   it('确定不在某人手里的牌（进贡约束、抗贡）不会分给他', () => {
     const hand = ids('S3 S4');
     const unseen = ALL_IDS.filter((id) => !hand.includes(id));
