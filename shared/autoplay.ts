@@ -30,6 +30,21 @@ export function pickByMC(r: MCResult | null, cfg: MCConfig): { best: number; gai
   return { best: best !== 0 && gain >= cfg.margin ? best : 0, gain };
 }
 
+/** 模拟结果与最好的候选相差不到这么多级时，认为模拟拿不准 */
+export const JEV_TIE = 0.05;
+
+/**
+ * 模拟拿不准的候选：得分与最好的相差不到 eps 级的候选下标（含最好的）；模拟失败、样本不够或差距明显时返回空。
+ * 评估（scripts/bench.ts 的 mcjev，200 局配对）：拿不准时改用 Jev 的排序，每局净升级比只用模拟少 0.29 ±0.27 级，
+ * 所以提示没有采用，只保留用于以后再评估。
+ */
+export function mcTies(r: MCResult | null, cfg: MCConfig, eps = JEV_TIE): number[] {
+  if (!r || r.samples < cfg.minSamples) return [];
+  const best = Math.max(...r.scores);
+  const ids = r.scores.map((v, i) => (best - v <= eps ? i : -1)).filter((i) => i >= 0);
+  return ids.length >= 2 ? ids : [];
+}
+
 /** 一次决策的依据（复盘日志用）：候选出法、评分、模拟结果和命中的规则 */
 export interface DecisionLog {
   /** auto 托管 / timeout 超时代打 / hint 提示 / manual 自己出牌（记录当时的建议） */

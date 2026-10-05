@@ -139,6 +139,8 @@ export interface UnseenStat {
   wilds: number;
   /** 外面最大的单张点值（cardValue），没有时为 0 */
   topValue: number;
+  /** 外面可能凑出的同花顺中最大的起点（A 作 1 时为 1），凑不出时为 0 */
+  maxSfStart: number;
 }
 
 export function unseenStat(ids: number[], level: number): UnseenStat {
@@ -150,7 +152,25 @@ export function unseenStat(ids: number[], level: number): UnseenStat {
     const r = card(id).rank;
     byRank.set(r, (byRank.get(r) ?? 0) + 1);
   }
-  return { byRank, wilds, topValue };
+  return { byRank, wilds, topValue, maxSfStart: maxSfStart(ids, level, wilds) };
+}
+
+/** 外面的牌能凑出的最大同花顺起点：同花色连续 5 个点数，缺的用逢人配补 */
+function maxSfStart(ids: number[], level: number, wilds: number): number {
+  const has = new Set<string>();
+  for (const id of ids) if (!isWild(id, level)) has.add(card(id).suit + card(id).rank);
+  let best = 0;
+  for (const suit of ['S', 'H', 'C', 'D']) {
+    for (let start = 1; start <= 10; start++) {
+      let need = 0;
+      for (let p = 0; p < 5; p++) {
+        const r = start + p === 1 ? 14 : start + p;
+        if (!has.has(suit + r)) need++;
+      }
+      if (need <= wilds) best = Math.max(best, start);
+    }
+  }
+  return best;
 }
 
 export const JOKER_RANKS = [SMALL_JOKER, BIG_JOKER];

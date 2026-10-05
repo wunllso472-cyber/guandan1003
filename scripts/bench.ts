@@ -17,7 +17,7 @@ import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
 import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf } from '../shared/mc';
-import { smartPlay } from '../shared/autoplay';
+import { smartPlay, mcConfigFor, pickByMC, mcTies } from '../shared/autoplay';
 import { writeFileSync } from 'node:fs';
 
 const MC_K = Number(process.env.GD_MC_K ?? 4);
@@ -32,13 +32,16 @@ const MC_MID = process.env.GD_MC_MID === '1';
 const MC_MID_SAMPLES = Number(process.env.GD_MC_MID_SAMPLES ?? 30);
 const MC_MID_MARGIN = Number(process.env.GD_MC_MID_MARGIN ?? 0.2);
 
-export type Strategy = 'ai' | 'advisor' | 'jev' | 'mc' | 'auto';
+export type Strategy = 'ai' | 'advisor' | 'jev' | 'mc' | 'auto' | 'mcjev';
 const TRIBUTE = process.env.GD_TRIBUTE === '1';
 const NO_LACKS = process.env.GD_NO_LACKS === '1';
 const AUTO_BUDGET = Number(process.env.GD_AUTO_BUDGET ?? 300);
 type Ctx = { seat: number; g: GuandanGame; tracker: CardTracker };
 
 const JEV_MIN_CONFIDENCE = 0.6;
+/** mcjev：GD_NO_JEV=1 时拿不准也不请 Jev（对照组，同时统计会请几次） */
+const NO_JEV = process.env.GD_NO_JEV === '1';
+export const jevStats = { decisions: 0, ties: 0, calls: 0, adopted: 0, changed: 0, failed: 0 };
 
 async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Combo | null> {
   const target = g.lastPlay?.combo ?? null, targetSeat = g.lastPlay?.seat ?? null;
@@ -62,6 +65,33 @@ async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Co
     let best = 0;
     r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
     return r.scores[best] - r.scores[0] >= MC_MID_MARGIN ? top[best].combo : top[0].combo;
+  }
+  if (strategy === 'mcjev' && adv.options.length > 1) {
+    // 与托管相同的模拟设置（不限时间、按样本数）；模拟拿不准时请 Jev 在几个差不多的出法里定
+    jevStats.decisions++;
+    const cfg = mcConfigFor(g.handCounts());
+    const top = adv.options.slice(0, MC_K);
+    const run = cfg.mode === 'full' ? monteCarlo : monteCarloShallow;
+    const r = run(mcStateFrom(inp), top.map((o) => o.combo), 1e9, cfg.samples, g.roundNo * 1000 + g.hands[seat].length);
+    const mcPick = top[pickByMC(r, cfg)?.best ?? 0];
+    const ties = mcTies(r, cfg).map((i) => top[i]);
+    if (ties.length < 2) return mcPick.combo;
+    jevStats.ties++;
+    if (NO_JEV) return mcPick.combo;
+    const { adviseDirect } = await import('../server/jev');
+    jevStats.calls++;
+    try {
+      // 与提示相同：Jev 对前几个候选排序，在差不多的几手里取排得最前的
+      const j = await adviseDirect(buildJevContext(inp, { ...adv, options: top }), 8000);
+      const rank = j.ranking?.length && (j.confidence ?? 0) >= JEV_MIN_CONFIDENCE ? j.ranking : null;
+      const choice = rank ? ties.filter((o) => rank.includes(o.id)).sort((x, y) => rank.indexOf(x.id) - rank.indexOf(y.id))[0] : undefined;
+      if (choice) {
+        jevStats.adopted++;
+        if (choice !== mcPick) jevStats.changed++;
+        return choice.combo;
+      }
+    } catch { jevStats.failed++; }
+    return mcPick.combo;
   }
   if (strategy === 'jev' && adv.options.length > 1) {
     const { adviseDirect } = await import('../server/jev');
@@ -166,7 +196,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('scripts/bench.ts')) {
     if (process.env.GD_SPLIT_MODE) splitControl.mode = process.env.GD_SPLIT_MODE as 'group' | 'cost';
     console.log(splitControl.enabled ? `控制牌代价 ${splitControl.cost}（${splitControl.mode}）` : '拆牌不结合外面的牌');
   }
-  const parallel = Number(process.env.GD_PARALLEL ?? (a === 'jev' || b === 'jev' ? 4 : 1));
+  const usesJev = (x: string) => x === 'jev' || (x === 'mcjev' && !NO_JEV);
+  const parallel = Number(process.env.GD_PARALLEL ?? (usesJev(a) || usesJev(b) ? 4 : 1));
   const r = await bench(a as Strategy, b as Strategy, Number(n), Number(seed), parallel);
   console.log(formatResult(a, b, r));
+  if (a === 'mcjev' || b === 'mcjev') {
+    const j = jevStats;
+    console.log(`  mcjev：决策 ${j.decisions} 次，模拟拿不准 ${j.ties} 次（${(100 * j.ties / Math.max(1, j.decisions)).toFixed(1)}%）；请 Jev ${j.calls} 次，采用 ${j.adopted}，其中改变选择 ${j.changed}，失败 ${j.failed}`);
+  }
 }

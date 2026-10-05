@@ -1,6 +1,6 @@
 // 出牌顾问：结合记牌器，为“提示”列出候选出法、计算特征、给出本地排序和理由，并生成交给 Jev 的信息。
 import { card, cardValue, isWild, rankName, value, BIG_JOKER, SMALL_JOKER, type Suit } from './cards';
-import { bombLevel, comboName, isBomb, type Combo } from './combo';
+import { bombLevel, canBeat, comboName, isBomb, type Combo } from './combo';
 import { findAllPlays } from './finder';
 import { bestSplit, aiPlay, preferLooseCards } from './ai';
 import { CardTracker, sameTypeBeatable, unseenStat, type UnseenStat } from './tracker';
@@ -98,10 +98,23 @@ function rankOfValue(v: number, level: number): number {
 
 // ---------- 控制力：外面能不能压住 ----------
 
-/** 外面是否可能凑出炸弹（不含天王炸） */
-function bombPossible(st: UnseenStat): boolean {
-  for (let r = 2; r <= 14; r++) if ((st.byRank.get(r) ?? 0) + st.wilds >= 4 && (st.byRank.get(r) ?? 0) > 0) return true;
-  return false;
+/** 外面可能凑出的炸弹（同点数炸弹每个点数取最大张数、同花顺取最大起点、天王炸），用于和我的牌比大小 */
+function outsideBombs(st: UnseenStat, level: number): Combo[] {
+  const out: Combo[] = [];
+  const fake = (type: Combo['type'], size: number, v: number): Combo => ({ type, cards: new Array(size).fill(-1), value: v });
+  for (let r = 2; r <= 14; r++) {
+    const n = st.byRank.get(r) ?? 0;
+    // 逢人配最多两张，凑成炸弹至少要两张同点数的自然牌
+    if (n >= 2 && n + st.wilds >= 4) out.push(fake('bomb', n + st.wilds, value(r, level)));
+  }
+  if (st.maxSfStart > 0) out.push(fake('straightflush', 5, st.maxSfStart));
+  if (jokerBombPossible(st)) out.push(fake('jokerbomb', 4, 0));
+  return out;
+}
+
+/** 外面是否可能凑出任何炸弹（含同花顺、天王炸） */
+function bombPossible(st: UnseenStat, level: number): boolean {
+  return outsideBombs(st, level).length > 0;
 }
 
 function jokerBombPossible(st: UnseenStat): boolean {
@@ -110,19 +123,10 @@ function jokerBombPossible(st: UnseenStat): boolean {
 
 export function controlOf(c: Combo, st: UnseenStat, level: number): Control {
   if (c.type === 'jokerbomb') return 'unbeatable';
-  if (isBomb(c)) {
-    if (jokerBombPossible(st)) return 'beatable';
-    // 外面能凑出的最大炸弹张数
-    let maxSize = 0;
-    for (let r = 2; r <= 14; r++) {
-      const n = st.byRank.get(r) ?? 0;
-      if (n > 0) maxSize = Math.max(maxSize, n + st.wilds);
-    }
-    const lvl = bombLevel(c);
-    return maxSize >= 6 || (maxSize >= 4 && lvl <= 2) ? 'beatable' : 'unbeatable';
-  }
+  // 炸弹：外面能凑出更大的炸弹（张数更多，或同级点数更大，或同花顺/天王炸）才可能被压
+  if (isBomb(c)) return outsideBombs(st, level).some((b) => canBeat(b, c)) ? 'beatable' : 'unbeatable';
   if (sameTypeBeatable(c, st, level)) return 'beatable';
-  return bombPossible(st) || jokerBombPossible(st) ? 'bombOnly' : 'unbeatable';
+  return bombPossible(st, level) ? 'bombOnly' : 'unbeatable';
 }
 
 // ---------- 事实与推断 ----------
@@ -140,7 +144,7 @@ export function collectFacts(inp: AdviceInput, st: UnseenStat): { facts: string[
   const myTop = Math.max(0, ...hand.map((id) => cardValue(id, level)));
   if (myTop > st.topValue && st.topValue > 0) facts.push('我手里最大的单张比外面所有的牌都大');
   if (st.wilds > 0) facts.push(`外面还有 ${st.wilds} 张逢人配（红桃${rankName(level)}）`);
-  if (!bombPossible(st) && !jokerBombPossible(st)) facts.push('外面已经凑不出任何炸弹');
+  if (!bombPossible(st, level)) facts.push('外面已经凑不出任何炸弹');
   else if (jokerBombPossible(st)) facts.push('外面可能还有天王炸');
   for (let s = 0; s < 4; s++) {
     if (s === seat) continue;

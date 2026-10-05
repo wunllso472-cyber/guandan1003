@@ -170,6 +170,34 @@ describe('提示推荐', () => {
     expect(controlOf(pairBJ, st, 2)).not.toBe('beatable'); // 对大王只可能被炸弹压
   });
 
+  it('炸弹按张数和点数比较：外面只有更小的炸弹时压不住', () => {
+    const used = new Set<number>();
+    const my5 = parseCombos(ids('S9 C9 D9 S9 C9', used), 3)[0]; // 打 3：5 张 9
+    const my4 = parseCombos(ids('S10 C10 D10 H10', used), 3)[0];
+    expect(my5.type).toBe('bomb');
+    expect(my4.cards.length).toBe(4);
+    const small4 = unseenStat(ids('S5 C5 D5 H5', used), 3);       // 外面只能凑 4 张 5
+    expect(controlOf(my5, small4, 3)).toBe('unbeatable');
+    expect(controlOf(my4, small4, 3)).toBe('unbeatable');
+    const big4 = unseenStat(ids('SK CK DK HK', used), 3);         // 外面能凑 4 张 K
+    expect(controlOf(my4, big4, 3)).toBe('beatable');
+    expect(controlOf(my5, big4, 3)).toBe('unbeatable');
+  });
+
+  it('外面凑不出同点数炸弹、但可能有同花顺时，顺子只可能被炸弹压', () => {
+    const used = new Set<number>();
+    const straight = parseCombos(ids('S10 CJ DQ SK CA', used), 2)[0];
+    expect(straight.type).toBe('straight');
+    const st = unseenStat(ids('D3 D4 D5 D6 D7 S8', used), 2);
+    expect(st.maxSfStart).toBe(3);
+    expect(controlOf(straight, st, 2)).toBe('bombOnly');
+    // 我的同花顺：外面只有更小的同花顺压不住，更大的能压
+    const mySf = parseCombos(ids('S5 S6 S7 S8 S9', used), 2).find((c) => c.type === 'straightflush')!;
+    expect(mySf.type).toBe('straightflush');
+    expect(controlOf(mySf, st, 2)).toBe('unbeatable');
+    expect(controlOf(mySf, unseenStat(ids('C8 C9 C10 CJ CQ', used), 2), 2)).toBe('beatable');
+  });
+
   it('生成交给 Jev 的信息', () => {
     const tr = setup(2);
     const hand = ids('S4 C4 S9 SK');
