@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f7f7f2">
+<meta name="description" content="掼蛋 - 默契，从这一手开始. 加载动效演示，非真实牌局.">
+<title>掼蛋 | 默契，从这一手开始</title>
+<style>
+/* Self-contained artwork. No external images, fonts, libraries, or requests. */
+:root {
+  color-scheme: light;
+  --bg: #f7f7f2;
+  --halo: rgba(243,246,218,.37);
+  --surface: #fdfdf9;
+  --ink: #263e35;
+  --muted: #748074;
+  --line: #e2e5dc;
+  --green: #285b49;
+  --green-bright: #75b997;
+  --soft-green: #eaf0e6;
+  --card-paper: #fcfbf6;
+  --card-border: #ddd9cd;
+  --shell: #c9c7b8;
+  --empty: #f0efea;
+  --empty-suit: #c7c8bf;
+  --token: #a2ab9e;
+  --shadow: 0 18px 36px -24px rgba(40,57,43,.22);
+  --progress: 70%;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #151f1c;
+  --halo: rgba(109,149,106,.12);
+  --surface: #1e2b26;
+  --ink: #e6eddf;
+  --muted: #93a399;
+  --line: #34473c;
+  --green: #a5cfad;
+  --green-bright: #8ecea5;
+  --soft-green: #273f31;
+  --card-paper: #e9e9da;
+  --card-border: #c8cdbc;
+  --shell: #5c6e5d;
+  --empty: #2c3932;
+  --empty-suit: #637467;
+  --token: #788d79;
+  --shadow: 0 20px 48px -20px rgba(0,0,0,.46);
+}
+* { box-sizing: border-box; }
+html { min-height: 100%; }
+body {
+  margin: 0; min-height: 100vh; min-height: 100svh;
+  color: var(--ink); background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color .4s ease, color .4s ease;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1;
+  background: radial-gradient(ellipse at 50% 40%, var(--halo), transparent 62%);
+}
+button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button:disabled { opacity: .4; cursor: default; }
+button, [role="slider"] { outline: none; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--green); outline-offset: 5px; }
+button svg, .icon { display: inline-block; width: 20px; height: 20px; flex: 0 0 auto; }
+.symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0; padding: 0;
+}
+.page { overflow: hidden; max-width: 1440px; margin: 0 auto; min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; }
+.site-header {
+  height: 110px; padding: 0 66px; display: flex; align-items: center; justify-content: space-between;
+}
+.brand { display: flex; align-items: center; gap: 13px; }
+.brand-mark { position: relative; width: 33px; height: 37px; }
+.brand-mark::before, .brand-mark::after {
+  content: ""; position: absolute; width: 23px; height: 31px; border-radius: 5px; border: 1.5px solid var(--green);
+}
+.brand-mark::before { left: 0; top: 1px; transform: rotate(-14deg); opacity: .38; }
+.brand-mark::after { left: 7px; top: 4px; background: var(--bg); transform: rotate(7deg); }
+.brand-mark svg { position: absolute; left: 12px; top: 12px; width: 14px; height: 14px; z-index: 1; fill: var(--green); transform: rotate(7deg); }
+.brand-name { font-size: 20px; font-weight: 650; letter-spacing: 3px; line-height: 1.25; }
+.brand-sub { display: block; color: var(--muted); font-size: 9px; letter-spacing: 2.7px; margin-top: 5px; font-family: Arial,sans-serif; }
+.header-actions { display: flex; align-items: center; gap: 21px; }
+.demo-badge { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; letter-spacing: 1px; }
+.demo-badge::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #8daa87; }
+.text-button { background: none; border: 0; padding: 10px 0; color: var(--muted); font-size: 12px; transition: color .2s; }
+.text-button:hover { color: var(--green); }
+.icon-button { border: 1px solid var(--line); background: transparent; border-radius: 50%; width: 38px; height: 38px; display: grid; place-items: center; color: var(--green); transition: background .2s, transform .2s; }
+.icon-button:hover { background: var(--soft-green); transform: rotate(-8deg); }
+.icon-button svg { width: 17px; height: 17px; }
+.sun-icon { display: none; }
+[data-theme="dark"] .sun-icon { display: block; }
+[data-theme="dark"] .moon-icon { display: none; }
+main { flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; padding: 60px 36px 46px; }
+.intro { text-align: center; }
+.eyebrow { margin: 0 0 19px; font-size: 10px; letter-spacing: 3.5px; font-weight: 600; color: var(--muted); font-family: Arial, sans-serif; }
+h1 { font-size: clamp(30px, 4.1vw, 52px); line-height: 1.4; margin: 0; font-weight: 520; letter-spacing: 3px; }
+h1 span { color: var(--green); position: relative; }
+.intro-description { font-size: 13px; letter-spacing: 1.7px; color: var(--muted); margin: 18px 0 0; }
+.experience { width: min(100%, 1040px); margin-top: 41px; }
+.progress-assembly { padding: 86px 66px 34px 66px; position: relative; isolation: isolate; }
+.progress-assembly::after {
+  content: ""; position: absolute; left: 9%; right: 9%; bottom: 1px; height: 28px; z-index: -1;
+  background: rgba(48,73,48,.09); border-radius: 50%; filter: blur(20px);
+}
+.progress-track { position: relative; height: 88px; cursor: ew-resize; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.track-shell { position: absolute; inset: 0; border: 1.5px solid var(--shell); border-radius: 45px; background: var(--surface); box-shadow: inset 0 0 0 5px var(--bg), var(--shadow); transition: box-shadow .2s; }
+.progress-track:focus-visible .track-shell { box-shadow: 0 0 0 5px var(--bg), 0 0 0 7px var(--green), var(--shadow); }
+.track-window { position: absolute; inset: 9px 10px; overflow: hidden; border-radius: 35px; background: var(--empty); border: 1px solid rgba(129,132,115,.12); }
+.tile-grid { position: absolute; inset: 0 -10px; display: grid; grid-template-columns: repeat(13, 1fr); }
+.tile {
+  min-width: 0; margin-right: -5px; border-radius: 15px;
+  border: 1px solid rgba(255,255,255,.53); border-right-color: rgba(179,179,161,.21);
+  transform: skewX(-15deg); display: grid; place-items: center;
+  background: linear-gradient(145deg,rgba(255,255,255,.57),rgba(255,255,255,0));
+}
+[data-theme="dark"] .track-window > .tile-grid .tile { background: linear-gradient(145deg,rgba(255,255,255,.09),transparent); border-color: rgba(196,221,195,.13); }
+.tile svg { width: 29px; height: 29px; fill: var(--empty-suit); transform: skewX(15deg); opacity: .8; }
+.fill-layer {
+  position: absolute; inset: 0; clip-path: inset(0 calc(100% - var(--progress)) 0 0);
+  background: linear-gradient(100deg,#29584b 0%,#367962 45%,#76c39a 100%);
+  will-change: clip-path;
+}
+.fill-layer .tile { background: linear-gradient(130deg,rgba(255,255,255,.14),rgba(0,25,17,.12)); border-color: rgba(207,241,216,.4); border-right-color: rgba(20,68,49,.3); }
+.fill-layer .tile svg { fill: #d6ebd3; opacity: .72; }
+.sheen { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.sheen::after { content: ""; position: absolute; top: 0; left: -40%; width: 30%; height: 100%; background: linear-gradient(100deg,transparent,rgba(255,255,214,.17),transparent); transform: skewX(-15deg); animation: sweep 6.8s ease-in-out infinite; }
+.progress-edge { position: absolute; top: 5px; bottom: 5px; left: var(--progress); width: 2px; transform: translateX(-50%); pointer-events: none; border-radius: 2px; background: #f2f3b9; box-shadow: 0 0 6px 1px #e9f3ab,0 0 19px 5px rgba(230,243,161,.62); }
+.marker-rail { position: absolute; inset: 0 10px; pointer-events: none; }
+.progress-marker { position: absolute; left: var(--progress); top: -61px; z-index: 8; width: 88px; margin-left: -44px; text-align: center; }
+.bubble { position: relative; height: 43px; display: flex; align-items: center; justify-content: center; gap: 1px; border-radius: 24px; color: #fbfff4; background: linear-gradient(115deg,#264b43,#407b60); border: 1px solid rgba(26,66,46,.55); box-shadow: 0 5px 14px -9px rgba(18,55,36,.7); animation: bob 4s ease-in-out infinite; }
+.bubble::after { content: ""; position: absolute; width: 11px; height: 11px; left: calc(50% - 6px); bottom: -5px; border-radius: 1px; transform: rotate(45deg); background: #356450; }
+.percent-number { font-size: 25px; font-weight: 500; letter-spacing: -.8px; line-height: 1; font-family: "Avenir Next", Arial, sans-serif; font-variant-numeric: tabular-nums; z-index: 1; }
+.percent-sign { font-size: 16px; margin-top: 3px; z-index: 1; }
+.progress-knob { position: absolute; left: var(--progress); top: -2px; width: 23px; height: 23px; transform: translateX(-50%); z-index: 9; border-radius: 50%; border: 3px solid var(--surface); background: linear-gradient(130deg,#7ccfaa,#f7f9bd); box-shadow: 0 0 0 1px rgba(175,191,145,.43),0 0 17px rgba(192,237,143,.45); transition: scale .15s; }
+.is-dragging .progress-knob { scale: 1.2; }
+.is-dragging .bubble { animation-play-state: paused; }
+.start-deck { position: absolute; z-index: 5; width: 117px; height: 128px; left: -36px; top: -20px; pointer-events: none; transform: rotate(-1deg); }
+.deck-card { position: absolute; width: 73px; height: 108px; border-radius: 11px; box-shadow: 0 4px 7px rgba(38,65,46,.06); }
+.deck-back { left: 8px; top: 18px; transform: rotate(-19deg); background: linear-gradient(140deg,#a5d1b1,#3c8b70); border: 1px solid #72a38b; }
+.deck-middle { left: 20px; top: 9px; transform: rotate(-8deg); background: linear-gradient(140deg,#f3f8ed,#c5dcc7); border: 1.5px solid #b7cabc; }
+.deck-middle::after { content: ""; position: absolute; inset: 7px; border-radius: 6px; border: 1px solid #cfdfce; }
+.deck-front { left: 33px; top: 5px; transform: rotate(16deg); background: var(--card-paper); border: 1.5px solid var(--card-border); display: grid; place-items: center; animation: card-breathe 6s ease-in-out infinite; }
+.deck-front::after { content: ""; position: absolute; inset: 7px; border: 1px solid #ece8de; border-radius: 6px; background: linear-gradient(120deg,rgba(255,255,255,.5),transparent); }
+.deck-front svg { width: 36px; height: 36px; fill: #2e5b4a; z-index: 1; }
+.card-corner { position: absolute; left: 11px; top: 9px; font-family: Georgia,serif; font-size: 11px; color: #6a8570; z-index: 1; }
+.card-corner.bottom { left: auto; top: auto; right: 11px; bottom: 9px; transform: rotate(180deg); }
+.deck-ribbon { position: absolute; left: -7px; top: 29px; width: 128px; height: 107px; overflow: visible; }
+.finish-token { position: absolute; z-index: 5; right: -37px; top: -10px; width: 108px; height: 108px; border-radius: 50%; background: var(--surface); border: 1.5px solid var(--shell); box-shadow: 0 6px 10px -9px #626857; pointer-events: none; display: grid; place-items: center; transition: transform .55s cubic-bezier(.22,1,.36,1); }
+.token-plate { position: absolute; inset: 9px; background: var(--bg); border: 1px solid var(--card-border); border-radius: 25px; transform: rotate(22deg); transition: border-color .5s, background .5s; }
+.token-plate.inner { inset: 16px; transform: rotate(-12deg); background: var(--surface); border-color: var(--line); border-radius: 18px; }
+.crown { width: 40px; height: 40px; fill: var(--token); z-index: 1; transition: fill .5s,transform .6s; }
+.sparkle { position: absolute; width: 15px; height: 22px; right: -17px; top: -22px; fill: #d0cbb9; animation: twinkle 4s ease-in-out infinite; }
+.sparkle.small { width: 10px; height: 15px; top: 2px; right: -32px; animation-delay: 1.1s; }
+.is-complete .finish-token { transform: rotate(4deg) scale(1.045); border-color: #88b08b; }
+.is-complete .token-plate { border-color: #a0bf92; background: var(--soft-green); }
+.is-complete .crown { fill: #4d8c60; transform: scale(1.1); }
+.is-complete .sparkle { fill: #99b983; }
+.celebration { position: absolute; inset: -80px -52px -50px; pointer-events: none; overflow: visible; z-index: 10; }
+.particle { position: absolute; width: 12px; height: 12px; right: 10px; top: 95px; fill: var(--particle-color); animation: celebrate 1.5s cubic-bezier(.2,.55,.45,1) forwards; }
+.status { display: flex; align-items: center; justify-content: center; gap: 9px; margin: 17px 0 0; min-height: 25px; font-size: 12px; letter-spacing: .8px; color: var(--green); }
+.status-dot { width: 5px; height: 5px; background: #87b28c; border-radius: 50%; box-shadow: 0 0 0 4px rgba(125,173,122,.1); }
+.is-playing ~ .status .status-dot { animation: status-pulse 1.8s ease-in-out infinite; }
+.steps { width: min(580px, 90%); display: flex; align-items: flex-start; margin: 35px auto 0; padding: 0; list-style: none; }
+.step { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 9px; font-size: 11px; letter-spacing: .5px; color: var(--muted); }
+.step::after { content: ""; height: 1px; position: absolute; left: calc(50% + 21px); right: calc(-50% + 21px); top: 11px; background: var(--line); }
+.step:last-child::after { display: none; }
+.step-index { width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; font-family: Arial,sans-serif; border: 1px solid var(--line); background: var(--bg); position: relative; z-index: 1; transition: background .35s, border-color .35s, color .35s; }
+.step-index svg { width: 12px; height: 12px; display: none; }
+.step.is-done .step-index { background: var(--soft-green); border-color: var(--soft-green); color: var(--green); }
+.step.is-done .step-index span { display: none; }
+.step.is-done .step-index svg { display: block; }
+.step.is-done::after { background: #c0d5bd; }
+.step.is-current { color: var(--green); font-weight: 550; }
+.step.is-current .step-index { border-color: #91b69b; background: var(--soft-green); box-shadow: 0 0 0 4px var(--bg); }
+.step.is-done { color: var(--green); }
+.interaction { text-align: center; margin-top: 38px; }
+.controls { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.primary-button { height: 46px; padding: 0 24px; min-width: 152px; border: 1px solid transparent; background: #2d5b47; color: #f8fbed; display: inline-flex; align-items: center; justify-content: center; gap: 9px; border-radius: 25px; font-size: 12px; letter-spacing: .8px; box-shadow: 0 5px 12px -8px #17482d; transition: background .2s,transform .2s,box-shadow .2s; }
+.primary-button:hover { background: #376e54; transform: translateY(-2px); box-shadow: 0 9px 15px -10px #17482d; }
+.primary-button:active { transform: translateY(0); }
+.primary-button svg { width: 15px; height: 15px; }
+.secondary-button { height: 44px; padding: 0 16px; border: 1px solid var(--line); background: transparent; border-radius: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 12px; transition: background .2s,border-color .2s; }
+.secondary-button:hover { background: var(--surface); border-color: var(--shell); }
+.secondary-button svg { width: 15px; height: 15px; }
+.advance-button { font-size: 11px; min-height: 44px; padding: 0 8px; }
+.controls-divider { width: 1px; height: 20px; background: var(--line); margin: 0 3px; }
+.loop-control { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); background: none; border: 0; min-height: 44px; padding: 0 3px; }
+.switch-track { width: 28px; height: 16px; background: #d9ded3; border: 1px solid rgba(0,0,0,.03); border-radius: 20px; position: relative; transition: background .25s; }
+.switch-track::after { content: ""; position: absolute; width: 10px; height: 10px; background: #fffef7; border-radius: 50%; top: 2px; left: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.1); transition: transform .25s; }
+.loop-control[aria-checked="true"] .switch-track { background: #4e8b67; }
+.loop-control[aria-checked="true"] .switch-track::after { transform: translateX(12px); }
+.help-text { color: var(--muted); font-size: 10px; letter-spacing: .4px; margin: 17px 0 0; }
+.presets { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 29px; }
+.presets-label { font-size: 10px; letter-spacing: .5px; color: var(--muted); margin-right: 3px; }
+.preset { border: 1px solid transparent; background: transparent; padding: 7px 12px; min-height: 34px; border-radius: 18px; font-size: 10px; letter-spacing: .3px; color: var(--muted); transition: border-color .25s,color .25s,background .25s; }
+.preset:hover { background: var(--soft-green); color: var(--green); }
+.preset[aria-pressed="true"] { border-color: var(--line); color: var(--green); background: var(--surface); }
+.site-footer { margin: auto 66px 0; border-top: 1px solid var(--line); min-height: 70px; display: flex; justify-content: space-between; align-items: center; gap: 24px; color: var(--muted); font-size: 9px; letter-spacing: .6px; }
+.footer-sign { font-family: Arial,sans-serif; letter-spacing: 2.2px; display: flex; align-items: center; gap: 11px; }
+.footer-sign svg { width: 11px; height: 11px; fill: var(--muted); opacity: .7; }
+.footer-right { display: flex; align-items: center; gap: 26px; }
+.keyboard-hint { opacity: .8; }
+.entry { animation: arrive .8s cubic-bezier(.2,.7,.3,1) both; }
+.experience.entry { animation-delay: .12s; }
+dialog { padding: 0; width: min(570px, calc(100% - 32px)); max-height: calc(100svh - 48px); border: 1px solid var(--line); border-radius: 24px; background: var(--surface); color: var(--ink); box-shadow: 0 30px 100px rgba(19,42,26,.18); }
+dialog::backdrop { background: rgba(22,37,27,.28); backdrop-filter: blur(5px); }
+.dialog-content { padding: 37px; }
+.dialog-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.dialog-top .eyebrow { margin: 0; letter-spacing: 2px; }
+.dialog-content h2 { font-size: 21px; line-height: 1.6; letter-spacing: 1px; margin: 0 0 15px; font-weight: 550; }
+.dialog-content h3 { font-size: 13px; margin: 26px 0 9px; font-weight: 600; }
+.dialog-content p { font-size: 12px; line-height: 1.95; color: var(--muted); margin: 0 0 12px; }
+.code-box { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.code-box pre { overflow-x: auto; margin: 0; padding: 18px; font-size: 11px; line-height: 1.95; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--green); }
+.code-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+.code-toolbar button { border: 0; background: none; color: var(--green); padding: 5px; font-size: 11px; }
+.dialog-content .dialog-note { font-size: 10px; margin: 18px 0 0; }
+noscript { display: block; padding: 12px; text-align: center; color: #a74431; background: #fcebdc; }
+@keyframes sweep { 0%,30% { left: -40%; } 75%,100% { left: 115%; } }
+@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes card-breathe { 0%,100% { transform: rotate(16deg) translateY(0); } 50% { transform: rotate(13deg) translateY(-2px); } }
+@keyframes twinkle { 0%,100% { opacity: .55; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.08); } }
+@keyframes status-pulse { 50% { box-shadow: 0 0 0 6px rgba(125,173,122,0); } }
+@keyframes arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes celebrate { 0% { opacity: 0; transform: translate(0,0) rotate(0) scale(.5); } 12% { opacity: .85; } 80% { opacity: .55; } 100% { opacity: 0; transform: translate(var(--dx),var(--dy)) rotate(var(--rotation)) scale(.7); } }
+@media (min-width: 1600px) { main { padding-top: 88px; } .experience { margin-top: 54px; } }
+@media (max-width: 900px) {
+ .site-header { padding: 0 34px; height: 90px; }
+ main { padding: 52px 24px 35px; }
+ .progress-assembly { padding-left: 40px; padding-right: 40px; }
+ .progress-track { height: 79px; }
+ .start-deck { transform: scale(.91); transform-origin: 50% 65%; }
+ .finish-token { transform: scale(.91); transform-origin: 50% 45%; right: -38px; }
+ .is-complete .finish-token { transform: scale(.94) rotate(4deg); }
+ .tile svg { width: 24px; height: 24px; }
+ .site-footer { margin-left: 34px; margin-right: 34px; }
+ .keyboard-hint { display: none; }
+}
+@media (max-width: 600px) {
+ .site-header { padding: 0 24px; height: 87px; }
+ .brand { gap: 10px; }
+ .brand-name { font-size: 18px; }
+ .brand-sub { font-size: 8px; letter-spacing: 2px; }
+ .brand-mark { transform: scale(.91); }
+ .header-actions { gap: 15px; }
+ .demo-badge { display: none; }
+ .text-button { font-size: 11px; }
+ .icon-button { width: 34px; height: 34px; }
+ main { padding: 45px 17px 30px; }
+ h1 { letter-spacing: 2px; font-size: clamp(27px,7.4vw,37px); }
+ .eyebrow { font-size: 8px; letter-spacing: 2.2px; margin-bottom: 19px; }
+ .intro-description { font-size: 11px; letter-spacing: 1px; margin-top: 16px; }
+ .experience { margin-top: 34px; }
+ .progress-assembly { padding: 78px 29px 31px 26px; }
+ .progress-track { height: 60px; }
+ .track-shell { box-shadow: inset 0 0 0 3px var(--bg),var(--shadow); }
+ .track-window { inset: 6px 6px; border-radius: 27px; }
+ .marker-rail { inset: 0 6px; }
+ .tile { border-radius: 9px; margin-right: -4px; }
+ .tile-grid { inset: 0 -9px; grid-template-columns: repeat(9, 1fr); }
+ .tile:nth-child(n+10) { display: none; }
+ .tile svg { width: 20px; height: 20px; }
+ .progress-marker { top: -51px; width: 70px; margin-left: -35px; }
+ .bubble { height: 35px; }
+ .percent-number { font-size: 21px; }
+ .percent-sign { font-size: 13px; }
+ .progress-knob { width: 19px; height: 19px; top: -2px; border-width: 2px; }
+ .start-deck { transform: scale(.69); transform-origin: 0 0; left: -23px; top: -12px; }
+ .finish-token { transform: scale(.65); transform-origin: 100% 0; right: -26px; top: -5px; }
+ .is-complete .finish-token { transform: scale(.68) rotate(4deg); }
+ .sparkle { right: -1px; top: -24px; }
+ .sparkle.small { right: -8px; top: -4px; }
+ .progress-edge { box-shadow: 0 0 6px #e9f3ab,0 0 11px 2px rgba(230,243,161,.6); }
+ .status { margin-top: 7px; font-size: 10px; letter-spacing: .4px; }
+ .steps { width: 96%; margin-top: 34px; }
+ .step { font-size: 10px; gap: 10px; letter-spacing: 0; }
+ .step::after { left: calc(50% + 18px); right: calc(-50% + 18px); }
+ .interaction { margin-top: 33px; }
+ .controls { gap: 8px; flex-wrap: wrap; }
+ .primary-button { padding: 0 18px; min-width: 137px; height: 44px; font-size: 11px; }
+ .secondary-button { padding: 0 13px; font-size: 11px; }
+ .advance-button { order: 4; flex-basis: 100%; min-height: 30px; margin-top: 1px; padding: 0; }
+ .controls-divider { margin: 0 1px; }
+ .loop-control { gap: 6px; font-size: 10px; }
+ .help-text { margin-top: 11px; font-size: 9px; }
+ .presets { margin-top: 23px; gap: 3px; }
+ .presets-label { font-size: 9px; margin-right: 2px; }
+ .preset { padding: 6px 10px; font-size: 9px; }
+ .site-footer { margin: auto 24px 0; flex-direction: column; gap: 10px; padding: 22px 0; font-size: 8px; }
+ .footer-sign { letter-spacing: 2px; }
+ .footer-right { gap: 0; }
+ .dialog-content { padding: 25px; }
+ .dialog-content h2 { font-size: 18px; }
+ .celebration { inset: -70px -15px -40px; }
+ .particle { top: 74px; right: 0; width: 9px; height: 9px; }
+}
+@media (max-width: 350px) {
+ .site-header { padding: 0 17px; }
+ main { padding-left: 10px; padding-right: 10px; }
+ .header-actions { gap: 10px; }
+ .controls { gap: 7px; }
+ .controls-divider { display: none; }
+ .primary-button { min-width: 126px; padding: 0 13px; }
+ .secondary-button { padding: 0 10px; }
+ .preset { padding: 6px 7px; }
+}
+@media (prefers-reduced-motion: reduce) {
+ *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+ .particle { display: none; }
+}
+</style>
+</head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+ <symbol id="s-spade" viewBox="0 0 24 24"><path d="M12 1.7C9.9 5.3 3 8.6 3 13.3c0 3.8 4.7 5.4 7.6 2.6-.2 2.2-1.1 3.7-2.6 5.2h8c-1.5-1.5-2.4-3-2.6-5.2 2.9 2.8 7.6 1.2 7.6-2.6C21 8.6 14.1 5.3 12 1.7Z"/></symbol>
+ <symbol id="s-heart" viewBox="0 0 24 24"><path d="M12 21S2 14.6 2 8.1C2 2.8 8.9.5 12 6c3.1-5.5 10-3.2 10 2.1C22 14.6 12 21 12 21Z"/></symbol>
+ <symbol id="s-diamond" viewBox="0 0 24 24"><path d="M12 1.4 21.1 12 12 22.6 2.9 12Z"/></symbol>
+ <symbol id="s-club" viewBox="0 0 24 24"><path d="M12 2a4.6 4.6 0 0 0-3.6 7.5 4.7 4.7 0 1 0 2.3 7c-.2 1.8-.8 3.3-2.5 4.8h7.6c-1.7-1.5-2.3-3-2.5-4.8a4.7 4.7 0 1 0 2.3-7A4.6 4.6 0 0 0 12 2Z"/></symbol>
+ <symbol id="s-crown" viewBox="0 0 48 48"><path d="m7 15 10 8 7-15 7 15 10-8-5 21H12L7 15Zm6 25h22v4H13z"/><circle cx="6" cy="12" r="3"/><circle cx="24" cy="5" r="3"/><circle cx="42" cy="12" r="3"/></symbol>
+ <symbol id="s-sparkle" viewBox="0 0 20 28"><path d="M10 0C9 8 7 11 0 14c7 3 9 6 10 14 1-8 3-11 10-14C13 11 11 8 10 0Z"/></symbol>
+ <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+ <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 6v12M16 6v12" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></symbol>
+ <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 1.3 7M4 4v6h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+ <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+ <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.1A8.3 8.3 0 0 1 9.9 4 8.3 8.3 0 1 0 20 14.1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+ <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+ <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</defs></svg>
+<noscript>请启用 JavaScript 以体验进度动画与交互。</noscript>
+<div class="page">
+ <header class="site-header entry">
+  <div class="brand" aria-label="掼蛋 Guandan">
+   <div class="brand-mark" aria-hidden="true"><svg><use href="#s-spade"/></svg></div>
+   <div><div class="brand-name">掼蛋</div><span class="brand-sub">GUANDAN</span></div>
+  </div>
+  <div class="header-actions">
+   <span class="demo-badge">交互演示</span>
+   <button class="text-button" id="guideButton" type="button" aria-haspopup="dialog">使用说明</button>
+   <button class="icon-button" id="themeButton" type="button" aria-label="切换深色外观" title="切换深色外观" aria-pressed="false">
+    <svg class="moon-icon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="sun-icon" aria-hidden="true"><use href="#i-sun"/></svg>
+   </button>
+  </div>
+ </header>
+ <main>
+  <section class="intro entry" aria-labelledby="pageTitle">
+   <p class="eyebrow">THE ART OF PLAYING TOGETHER</p>
+   <h1 id="pageTitle">好牌，正在<span>就位。</span></h1>
+   <p class="intro-description">慢一点入场，快一点默契。</p>
+  </section>
+  <section class="experience entry" aria-label="牌局加载进度（交互演示）">
+   <div class="progress-assembly" id="assembly">
+    <div class="progress-track" id="progressTrack" role="slider" tabindex="0" aria-label="牌局加载进度（交互演示）" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70" aria-valuetext="70%" aria-orientation="horizontal" aria-describedby="dragHelp">
+     <div class="track-shell" aria-hidden="true"></div>
+     <div class="track-window" id="trackWindow" aria-hidden="true">
+      <div class="tile-grid" id="baseTiles"></div>
+      <div class="fill-layer"><div class="tile-grid" id="filledTiles"></div><div class="sheen"></div></div>
+      <div class="progress-edge"></div>
+     </div>
+     <div class="start-deck" aria-hidden="true">
+      <div class="deck-card deck-back"></div><div class="deck-card deck-middle"></div>
+      <div class="deck-card deck-front"><span class="card-corner">A</span><svg><use href="#s-spade"/></svg><span class="card-corner bottom">A</span></div>
+      <svg class="deck-ribbon" viewBox="0 0 128 107"><path d="M9 18C-1 44 7 81 24 93 39 103 70 91 89 70c19-21 31-47 31-65" fill="none" stroke="#d0c29e" stroke-width="2.7" stroke-linecap="round"/><path d="M11 18C2 44 10 79 26 90c14 10 43-2 62-23" fill="none" stroke="#f5ecd4" stroke-width="1.4" stroke-linecap="round"/></svg>
+     </div>
+     <div class="finish-token" aria-hidden="true"><div class="token-plate"></div><div class="token-plate inner"></div><svg class="crown"><use href="#s-crown"/></svg><svg class="sparkle"><use href="#s-sparkle"/></svg><svg class="sparkle small"><use href="#s-sparkle"/></svg></div>
+     <div class="marker-rail" aria-hidden="true">
+      <div class="progress-marker"><div class="bubble"><span class="percent-number" id="percentNumber">70</span><span class="percent-sign">%</span></div></div>
+      <div class="progress-knob"></div>
+     </div>
+     <div class="celebration" id="celebration" aria-hidden="true"></div>
+    </div>
+   </div>
+   <div class="status"><span class="status-dot" aria-hidden="true"></span><span id="statusText"></span></div>
+   <ol class="steps" id="steps" aria-label="交互演示"></ol>
+   <div class="interaction">
+    <div class="controls">
+     <button class="primary-button" id="playButton" type="button"><svg aria-hidden="true"><use id="playIcon" href="#i-play"/></svg><span id="playLabel">开始演示</span></button>
+     <button class="secondary-button" id="resetButton" type="button"><svg aria-hidden="true"><use href="#i-reset"/></svg>重置</button>
+     <button class="text-button advance-button" id="advanceButton" type="button">+ 10%</button>
+     <span class="controls-divider" aria-hidden="true"></span>
+     <button class="loop-control" id="loopButton" role="switch" aria-checked="false" type="button"><span class="switch-track" aria-hidden="true"></span>循环播放</button>
+    </div>
+    <p class="help-text" id="dragHelp">拖动进度条，感受每一手的推进。</p>
+    <div class="presets" aria-label="一键体验"><span class="presets-label">一键体验</span><button class="preset" data-value="25" type="button" aria-pressed="false">初见 25%</button><button class="preset" data-value="70" type="button" aria-pressed="true">默契 70%</button><button class="preset" data-value="100" type="button" aria-pressed="false">就绪 100%</button></div>
+   </div>
+  </section>
+ </main>
+ <footer class="site-footer entry"><div class="footer-sign"><svg aria-hidden="true"><use href="#s-club"/></svg>GUANDAN / PLAY IN SYNC</div><div class="footer-right"><span class="keyboard-hint">← → 调节进度 · 空格播放 / 暂停</span><span>加载动效演示，非真实牌局</span></div></footer>
+</div>
+<div class="sr-only" id="announcer" role="status" aria-live="polite" aria-atomic="true"></div>
+<dialog id="guideDialog" aria-labelledby="guideTitle">
+ <div class="dialog-content">
+  <div class="dialog-top"><p class="eyebrow">A SMALL COMPONENT. A GOOD START.</p><button class="icon-button" id="closeDialog" type="button" aria-label="关闭说明"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <h2 id="guideTitle">把这份默契，接入你的牌局。</h2><p>这是一个独立的加载进度组件演示。所有卡牌与动效均由 CSS 和内联 SVG 绘制，无外部依赖，断网也能使用。</p>
+  <h3>如何体验</h3><p>点击或拖动进度条调节进度；点击“开始演示”自动推进。聚焦进度条后，方向键调节 1%，Shift + 方向键调节 10%，Home / End 跳至起点 / 终点。</p>
+  <h3>接入真实加载</h3><p>在资源加载回调中调用 setProgress，传入 0–100 的数值。自动播放只用于演示，不代表实际资源加载进度。</p>
+  <div class="code-box"><pre id="apiCode">guandanProgress.setProgress(70);
+guandanProgress.setProgress(100, {
+  animate: true, duration: 600
+});
+guandanProgress.play();
+guandanProgress.pause();
+guandanProgress.reset();
+
+window.addEventListener('guandan:complete', () =&gt; {
+  console.log('Ready to play!');
+});</pre><div class="code-toolbar"><span>Vanilla JavaScript</span><button id="copyButton" type="button">复制代码</button></div></div>
+  <p class="dialog-note">支持手机触控、键盘操作与系统减少动态效果设置。右上角可切换深浅外观。</p>
+ </div>
+</dialog>
+<script>
+'use strict';
+(() => {
+ const TEXT = {"brand": "掼蛋", "brand_tag": "默契，从这一手开始", "demo": "交互演示", "guide": "使用说明", "theme": "切换深色外观", "theme_light": "切换浅色外观", "heading_a": "好牌，正在", "heading_b": "就位。", "subtitle": "慢一点入场，快一点默契。", "slider": "牌局加载进度（交互演示）", "help": "拖动进度条，感受每一手的推进。", "stages": ["牌桌准备", "牌组整理", "默契连线", "即刻开局"], "statuses": ["先把牌桌布好", "每一张，都值得期待", "好牌与默契，正在相遇", "下一场精彩，就在眼前", "准备就绪，精彩即刻开局"], "play": "开始演示", "pause": "暂停演示", "continue": "继续演示", "again": "再来一局", "reset": "重置", "advance": "推进 10%", "loop": "循环播放", "jump": "一键体验", "preset0": "初见 25%", "preset1": "默契 70%", "preset2": "就绪 100%", "keyboard": "← → 调节进度 · 空格播放 / 暂停", "note": "加载动效演示，非真实牌局", "guide_title": "把这份默契，接入你的牌局。", "guide_intro": "这是一个独立的加载进度组件演示。所有卡牌与动效均由 CSS 和内联 SVG 绘制，无外部依赖，断网也能使用。", "guide_ops": "如何体验", "guide_ops_text": "点击或拖动进度条调节进度；点击“开始演示”自动推进。聚焦进度条后，方向键调节 1%，Shift + 方向键调节 10%，Home / End 跳至起点 / 终点。", "guide_api": "接入真实加载", "guide_api_text": "在资源加载回调中调用 setProgress，传入 0–100 的数值。自动播放只用于演示，不代表实际资源加载进度。", "copy": "复制代码", "copied": "已复制", "copy_fail": "请选中代码手动复制", "close": "关闭说明", "guide_footer": "支持手机触控、键盘操作与系统减少动态效果设置。右上角可切换深浅外观。", "noscript": "请启用 JavaScript 以体验进度动画与交互。", "complete_aria": "加载演示完成"};
+ const $ = (id) => document.getElementById(id);
+ const root = document.documentElement;
+ const assembly = $('assembly');
+ const track = $('progressTrack');
+ const rail = $('trackWindow');
+ const percentNode = $('percentNumber');
+ const statusNode = $('statusText');
+ const playLabel = $('playLabel');
+ const playIcon = $('playIcon');
+ const presets = Array.from(document.querySelectorAll('.preset'));
+ const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+ const suits = ['spade', 'heart', 'diamond', 'club'];
+ const NS = 'http://www.w3.org/2000/svg';
+ const state = { value: 0, playing: false, loop: false, raf: 0, loopTimer: 0, dragging: false, lastTime: 0, phase: -1, lastPercent: -1, completed: false, started: false };
+ let copyTimer = 0;
+
+ function suitSVG(name) {
+   const svg = document.createElementNS(NS, 'svg');
+   const use = document.createElementNS(NS, 'use');
+   use.setAttribute('href', `#s-${name}`); svg.appendChild(use); return svg;
+ }
+ // Build identical layers so that the fill edge can pass smoothly through a card.
+ for (let i = 0; i < 13; i++) {
+   for (const id of ['baseTiles', 'filledTiles']) {
+     const tile = document.createElement('div'); tile.className = 'tile';
+     tile.appendChild(suitSVG(suits[i % 4])); $(id).appendChild(tile);
+   }
+ }
+ const stepNodes = TEXT.stages.map((label, index) => {
+   const li = document.createElement('li'); li.className = 'step';
+   const badge = document.createElement('span'); badge.className = 'step-index'; badge.setAttribute('aria-hidden','true');
+   const n = document.createElement('span'); n.textContent = `0${index + 1}`;
+   const svg = document.createElementNS(NS,'svg'); const use = document.createElementNS(NS,'use');
+   use.setAttribute('href','#i-check'); svg.appendChild(use); badge.append(n,svg);
+   const text = document.createElement('span'); text.textContent = label;
+   li.append(badge,text); $('steps').appendChild(li); return li;
+ });
+
+ function syncControls() {
+   playIcon.setAttribute('href', state.playing ? '#i-pause' : '#i-play');
+   playLabel.textContent = state.playing ? TEXT.pause : state.value >= 100 ? TEXT.again : state.started && state.value > 0 ? TEXT.continue : TEXT.play;
+   $('playButton').setAttribute('aria-label', playLabel.textContent);
+   $('advanceButton').disabled = state.value >= 100;
+   $('loopButton').setAttribute('aria-checked', String(state.loop));
+   assembly.classList.toggle('is-playing',state.playing);
+ }
+ function announce(text) { $('announcer').textContent = text; }
+ function phaseFor(value) { return value >= 100 ? 4 : value >= 85 ? 3 : value >= 50 ? 2 : value >= 25 ? 1 : 0; }
+ function burst() {
+   if (motion.matches) return;
+   const box = $('celebration'); box.replaceChildren();
+   const small = window.innerWidth < 600;
+   for (let i = 0; i < 12; i++) {
+     const particle = suitSVG(suits[i % 4]); particle.classList.add('particle');
+     const angle = (-165 + i * 13) * Math.PI / 180;
+     const distance = (60 + (i % 4) * 21) * (small ? .66 : 1);
+     particle.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
+     particle.style.setProperty('--dy', `${Math.sin(angle) * distance - 26}px`);
+     particle.style.setProperty('--rotation', `${(i % 2 ? -1 : 1) * (45 + i * 16)}deg`);
+     particle.style.setProperty('--particle-color', ['#86b594','#b6c695','#d4c5a1'][i % 3]);
+     particle.style.animationDelay = `${i * 18}ms`;
+     particle.addEventListener('animationend', () => particle.remove(), { once: true });
+     box.appendChild(particle);
+   }
+ }
+ function paint(value, {quiet = false} = {}) {
+   state.value = Math.max(0, Math.min(100, value));
+   assembly.style.setProperty('--progress', `${state.value.toFixed(3)}%`);
+   const integer = Math.floor(state.value + 0.00001);
+   if (integer !== state.lastPercent) {
+     state.lastPercent = integer;
+     percentNode.textContent = String(integer);
+     track.setAttribute('aria-valuenow', String(integer));
+     track.setAttribute('aria-valuetext', `${integer}%`);
+     presets.forEach(b => b.setAttribute('aria-pressed', String(Math.abs(state.value - Number(b.dataset.value)) < .05)));
+     window.dispatchEvent(new CustomEvent('guandan:progress', {detail: {value: state.value}}));
+   }
+   const phase = phaseFor(state.value);
+   if (phase !== state.phase) {
+     state.phase = phase; statusNode.textContent = TEXT.statuses[phase];
+     stepNodes.forEach((node, i) => {
+       node.classList.toggle('is-done', i < phase);
+       node.classList.toggle('is-current', i === phase);
+       if (i === phase) node.setAttribute('aria-current','step'); else node.removeAttribute('aria-current');
+     });
+     if (!quiet) announce(`${integer}%. ${TEXT.statuses[phase]}`);
+   }
+   const complete = state.value >= 100;
+   assembly.classList.toggle('is-complete', complete);
+   if (complete && !state.completed) {
+     state.completed = true;
+     if (!quiet) { burst(); announce(TEXT.complete_aria); window.dispatchEvent(new CustomEvent('guandan:complete', {detail: {value: 100}})); }
+   } else if (!complete) {
+     state.completed = false;
+   }
+   syncControls();
+ }
+ function cancelAnimation() {
+   cancelAnimationFrame(state.raf); state.raf = 0;
+   clearTimeout(state.loopTimer); state.loopTimer = 0;
+ }
+ function pause() { cancelAnimation(); state.playing = false; syncControls(); }
+ function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+ /** @param {number} value - Progress in [0, 100]. Finite out-of-range values are clamped. */
+ function setProgress(value, {animate = true, duration = 550, quiet = false} = {}) {
+   if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError('Progress must be a finite number.');
+   if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0) throw new TypeError('Duration must be a non-negative finite number.');
+   pause();
+   const target = Math.max(0, Math.min(100, value));
+   if (!animate || motion.matches || duration === 0 || target === state.value) { paint(target,{quiet}); return; }
+   const from = state.value; const start = performance.now();
+   function frame(now) {
+     const time = Math.min(1, (now - start) / duration);
+     paint(time >= 1 ? target : from + (target - from) * easeOutCubic(time), {quiet});
+     if (time < 1) state.raf = requestAnimationFrame(frame); else state.raf = 0;
+   }
+   state.raf = requestAnimationFrame(frame);
+ }
+ function autoFrame(now) {
+   if (!state.playing) return;
+   // Cap deltas to prevent a sudden jump after a suspended/background tab.
+   const delta = Math.min(80, Math.max(0, now - state.lastTime)); state.lastTime = now;
+   paint(Math.min(100, state.value + delta / 85));
+   if (state.value < 100) { state.raf = requestAnimationFrame(autoFrame); return; }
+   state.raf = 0;
+   if (state.loop) {
+     state.loopTimer = window.setTimeout(() => {
+       state.loopTimer = 0;
+       if (!state.playing || !state.loop) return;
+       paint(0); state.lastTime = performance.now(); state.raf = requestAnimationFrame(autoFrame);
+     }, 1500);
+   } else { state.playing = false; syncControls(); }
+ }
+ function play() {
+   cancelAnimation();
+   if (state.value >= 100) paint(0);
+   state.started = true; state.playing = true;
+   state.lastTime = performance.now(); syncControls(); state.raf = requestAnimationFrame(autoFrame);
+ }
+ function reset() { pause(); state.started = false; $('celebration').replaceChildren(); paint(0); }
+ function togglePlayback() { state.playing ? pause() : play(); }
+ function setLoop(enabled) {
+   state.loop = Boolean(enabled);
+   if (!state.loop && state.loopTimer) { clearTimeout(state.loopTimer); state.loopTimer = 0; state.playing = false; }
+   syncControls();
+ }
+ function setTheme(theme) {
+   const dark = theme === 'dark'; root.dataset.theme = dark ? 'dark' : 'light';
+   $('themeButton').setAttribute('aria-pressed',String(dark));
+   $('themeButton').setAttribute('aria-label',dark ? TEXT.theme_light : TEXT.theme);
+   $('themeButton').title = dark ? TEXT.theme_light : TEXT.theme;
+   document.querySelector('meta[name="theme-color"]').content = dark ? '#151f1c' : '#f7f7f2';
+   try { localStorage.setItem('guandan-theme',dark ? 'dark' : 'light'); } catch (_) { /* Storage can be unavailable in embedded/file contexts. */ }
+ }
+ $('playButton').addEventListener('click',togglePlayback);
+ $('resetButton').addEventListener('click',reset);
+ $('advanceButton').addEventListener('click',() => setProgress(state.value + 10));
+ $('advanceButton').setAttribute('aria-label',TEXT.advance);
+ $('loopButton').addEventListener('click',() => setLoop(!state.loop));
+ presets.forEach(button => button.addEventListener('click',() => setProgress(Number(button.dataset.value))));
+ $('themeButton').addEventListener('click',() => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+ function progressAt(clientX) {
+   const rect = rail.getBoundingClientRect();
+   if (rect.width <= 0) return state.value;
+   return Math.round(Math.max(0, Math.min(100, (clientX - rect.left) / rect.width * 100)));
+ }
+ track.addEventListener('pointerdown',event => {
+   if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+   pause(); state.dragging = true; track.classList.add('is-dragging');
+   track.focus({preventScroll:true}); track.setPointerCapture(event.pointerId);
+   paint(progressAt(event.clientX));
+ });
+ track.addEventListener('pointermove',event => { if (state.dragging && event.isPrimary) paint(progressAt(event.clientX)); });
+ function stopDrag(event) {
+   if (!state.dragging) return;
+   state.dragging = false; track.classList.remove('is-dragging');
+   if (track.hasPointerCapture(event.pointerId)) track.releasePointerCapture(event.pointerId);
+   announce(`${Math.round(state.value)}%. ${TEXT.statuses[state.phase]}`);
+ }
+ track.addEventListener('pointerup',stopDrag); track.addEventListener('pointercancel',stopDrag); track.addEventListener('lostpointercapture',stopDrag);
+ track.addEventListener('keydown',event => {
+   const step = event.shiftKey ? 10 : 1; let next;
+   switch (event.key) {
+     case 'ArrowRight': case 'ArrowUp': next = Math.round(state.value) + step; break;
+     case 'ArrowLeft': case 'ArrowDown': next = Math.round(state.value) - step; break;
+     case 'PageUp': next = Math.round(state.value) + 10; break;
+     case 'PageDown': next = Math.round(state.value) - 10; break;
+     case 'Home': next = 0; break;
+     case 'End': next = 100; break;
+     case ' ': event.preventDefault(); togglePlayback(); return;
+     default: return;
+   }
+   event.preventDefault(); setProgress(next,{animate:false});
+ });
+ // A global Space shortcut only applies outside of native interactive controls.
+ document.addEventListener('keydown',event => {
+   if (event.code !== 'Space' || event.repeat || $('guideDialog').open) return;
+   if (event.target.closest('button,input,textarea,select,a,[role="slider"],[contenteditable]')) return;
+   event.preventDefault(); togglePlayback();
+ });
+ document.addEventListener('visibilitychange',() => { state.lastTime = performance.now(); });
+ motion.addEventListener('change',() => { if (motion.matches) $('celebration').replaceChildren(); });
+
+ const dialog = $('guideDialog');
+ $('guideButton').addEventListener('click',() => { pause(); dialog.showModal(); });
+ $('closeDialog').addEventListener('click',() => dialog.close());
+ dialog.addEventListener('click',event => {
+   if (event.target !== dialog) return;
+   const r = dialog.getBoundingClientRect();
+   if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close();
+ });
+ $('copyButton').addEventListener('click',async () => {
+   const text = $('apiCode').textContent; let success = false;
+   try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); success = true; } } catch (_) {}
+   if (!success) {
+     // file:// clipboard fallback, kept inside the modal focus boundary.
+     const textarea = document.createElement('textarea'); textarea.value = text; textarea.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
+     dialog.appendChild(textarea); textarea.select();
+     try { success = document.execCommand('copy'); } catch (_) {}
+     textarea.remove(); $('copyButton').focus();
+   }
+   $('copyButton').textContent = success ? TEXT.copied : TEXT.copy_fail;
+   clearTimeout(copyTimer); copyTimer = setTimeout(() => { $('copyButton').textContent = TEXT.copy; },2200);
+ });
+
+ // Public integration API and events. Auto playback is ONLY a visual demo.
+ window.guandanProgress = Object.freeze({
+   setProgress, play, pause, reset, setLoop, setTheme,
+   getProgress: () => state.value,
+   isPlaying: () => state.playing
+ });
+ let theme = 'light';
+ try { theme = localStorage.getItem('guandan-theme') || 'light'; } catch (_) {}
+ setTheme(theme);
+ paint(0,{quiet:true});
+ setProgress(70,{duration:1500,quiet:true});
+})();
+</script>
+</body>
+</html>
