@@ -38,7 +38,11 @@ export function mcCandidates<T extends { combo: Combo | null }>(opts: T[], extra
  * 结果比顾问首选好 margin 级以上才推翻首选（与 1002 局对打评估的设置一致）。
  */
 export interface MCConfig { mode: 'full' | 'shallow'; samples: number; minSamples: number; margin: number; label: string }
-/** 评估用可调（scripts/bench.ts 的 GD_END_MARGIN、GD_MID_MARGIN 等） */
+/**
+ * 评估用可调（scripts/bench.ts 的 GD_END_MARGIN、GD_MID_MARGIN 等）。
+ * 600 局配对评估（mcjev 对原电脑，基准 +0.745）：中盘门槛 0.2 每局 -0.300 ±0.177、0.6 -0.005 ±0.140、0.9 -0.168 ±0.168；
+ * 残局门槛 0.1 +0.007 ±0.063；残局界限 54 张 +0.040 ±0.107。现有设置已在最好的区间，默认不变。
+ */
 export const MC_END: MCConfig = { mode: 'full', samples: 40, minSamples: 15, margin: 0.25, label: '残局' };
 export const MC_MID: MCConfig = { mode: 'shallow', samples: 30, minSamples: 12, margin: 0.4, label: '牌局' };
 /** 残局界限（评估用可调，默认 MC_MAXCARDS） */

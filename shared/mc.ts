@@ -416,7 +416,11 @@ export function evalPosition(hands: number[][], level: number, team: number, lea
   return f.reduce((s, v, i) => s + v * w[i + 1], w[0]);
 }
 
-/** 中盘推演几轮后评分（评估用可调，默认 1 轮） */
+/**
+ * 中盘推演几轮后评分（评估用可调，默认 1 轮）。
+ * 600 局配对评估（对原电脑）：推演 2 轮每局 -0.165 ±0.175（简化出牌的偏差多累积一轮，评分也是按 1 轮拟合的）；
+ * 中盘推演改用正式电脑出牌 +0.115 ±0.162，不显著且慢数倍（线上 300 毫秒预算内样本不够），都不采用。
+ */
 export const shallowDepth = { tricks: 1 };
 
 /** 浅层推演：执行候选出法后，用简化出牌推演到这一轮结束（共 shallowDepth.tricks 轮），再给局面打分（本局已结束则用真实结果） */
