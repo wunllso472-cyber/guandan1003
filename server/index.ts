@@ -153,7 +153,7 @@ function handle(c: Conn, msg: ClientMsg) {
     case 'addAI': reply(room.addAI(c.token, Number(msg.seat))); return;
     case 'removeAI': reply(room.removeAI(c.token, Number(msg.seat))); return;
     case 'start': reply(room.start(c.token)); return;
-    case 'play': case 'pass': case 'return': case 'auto': case 'next': case 'chat':
+    case 'play': case 'pass': case 'return': case 'auto': case 'pause': case 'next': case 'chat':
       reply(room.action(c.token, msg as any));
       return;
   }

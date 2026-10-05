@@ -18,7 +18,7 @@ export type TableEvent =
   | { type: 'auto'; seat: number; on: boolean }
   /** 托管/超时代打的决策依据（联机只发给该座位本人） */
   | { type: 'decision'; seat: number; d: DecisionLog }
-  /** 暂停/继续（只有单机会暂停） */
+  /** 暂停/继续（单机，或联机房间里只有一个真人时） */
   | { type: 'pause'; on: boolean }
   | ({ type: 'chat' } & ChatMsg);
 

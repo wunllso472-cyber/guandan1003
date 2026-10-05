@@ -238,6 +238,11 @@ export class Room {
         (this.seats[seat] as Human).autoByDrop = false;
         table.setAuto(seat, !!msg.on);
         return null;
+      case 'pause':
+        // 暂停会卡住所有人，只有房间里只剩自己一个真人时才允许（继续总是允许）
+        if (msg.on && this.humans().length > 1) return '房间里还有其他玩家，不能暂停';
+        table.setPaused(!!msg.on);
+        return null;
       case 'chat':
         return table.chat(seat, msg.kind as ChatKind, Number(msg.id), msg.to === undefined ? undefined : Number(msg.to));
       case 'next':
@@ -257,8 +262,6 @@ export class Room {
       }
       return;
     }
-    // 联机不提供暂停（会影响其他玩家）
-    if (e.type === 'pause') return;
     if (e.type === 'decision') {
       // 决策依据里有该座位的手牌，只发给本人
       this.sendSeat(e.seat, { t: 'ev', e });
@@ -325,6 +328,7 @@ export class Room {
       auto: [...t.auto],
       online: this.seats.map((s) => s?.kind === 'ai' || (s?.kind === 'human' && !!s.ws && !s.left)),
       result: t.lastResult,
+      paused: t.paused,
     };
   }
 

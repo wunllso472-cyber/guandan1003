@@ -52,3 +52,28 @@ it('重复点击同一个座位不报错', () => {
   expect(room.sit('ta', 2)).toBeNull();
   expect(room.info().seats[2]?.name).toBe('甲');
 });
+
+it('联机暂停：有其他真人时不允许；只剩自己一个真人时可以暂停，重连快照带暂停状态', () => {
+  const room = new Room('111111', () => {}, new Map());
+  const a = fakeWs(), b = fakeWs();
+  room.join('ta', '甲', a.ws);
+  room.join('tb', '乙', b.ws);
+  room.addAI('ta', 2); room.addAI('ta', 3);
+  room.setReady('tb', true);
+  expect(room.start('ta')).toBeNull();
+  expect(room.action('ta', { t: 'pause', on: true })).toMatch(/其他玩家/);
+  expect(room.table!.paused).toBe(false);
+
+  room.leave('tb');
+  expect(room.action('ta', { t: 'pause', on: true })).toBeNull();
+  expect(room.table!.paused).toBe(true);
+  expect(a.msgs.some((x) => x.t === 'ev' && x.e.type === 'pause' && x.e.on)).toBe(true);
+
+  const a2 = fakeWs();
+  room.join('ta', '甲', a2.ws);
+  expect((a2.msgs.find((x) => x.t === 'snapshot') as any).s.paused).toBe(true);
+
+  expect(room.action('ta', { t: 'pause', on: false })).toBeNull();
+  expect(room.table!.paused).toBe(false);
+  room.dispose();
+});

@@ -26,15 +26,19 @@ export class NetGame implements GameClient {
   readonly game = new Mirror();
   private auto = [false, false, false, false];
   private online = [true, true, true, true];
+  private paused = false;
   private listeners: ((e: ClientEvent) => void)[] = [];
   private off: () => void;
 
   /** 服务端未配置 Jev 时不提供该方法，提示直接用本地结果 */
   requestAdvice?: (ctx: unknown, timeoutMs: number) => Promise<{ ranking: string[]; confidence?: number } | null>;
+  /** 暂停：只有房间里只有自己一个真人时才提供（服务端也会检查） */
+  setPaused?: (on: boolean) => void;
 
   constructor(private conn: Connection, readonly mySeat: number, readonly players: PlayerInfo[], jev = false) {
     this.off = conn.onMessage((m) => this.onServer(m));
     if (jev) this.requestAdvice = (ctx, timeoutMs) => this.askAdvice(ctx, timeoutMs);
+    if (players.filter((p) => !p.isAI).length === 1) this.setPaused = (on) => this.conn.send({ t: 'pause', on });
   }
 
   on(fn: (e: ClientEvent) => void) { this.listeners.push(fn); }
@@ -104,6 +108,9 @@ export class NetGame implements GameClient {
       case 'auto':
         this.auto[e.seat] = e.on;
         break;
+      case 'pause':
+        this.paused = e.on;
+        break;
       case 'presence':
         this.online[e.seat] = e.online;
         break;
@@ -130,10 +137,14 @@ export class NetGame implements GameClient {
     this.emit({ type: 'sync' });
     for (const d of s.deadlines) this.emit({ type: 'deadline', seat: d.seat, until: Date.now() + d.left });
     if (s.result && (s.phase === 'roundEnd' || s.phase === 'gameEnd')) this.emit({ type: 'roundEnd', result: s.result });
+    // 重连时还在暂停：放在倒计时之后，牌桌会停住倒计时并显示暂停遮罩
+    this.paused = !!s.paused;
+    if (this.paused) this.emit({ type: 'pause', on: true });
   }
 
   isAuto(seat: number) { return this.auto[seat]; }
   isOnline(seat: number) { return this.online[seat]; }
+  isPaused() { return this.paused; }
 
   private adviceSeq = 0;
   private advicePending = new Map<number, (r: { ranking: string[]; confidence?: number } | null) => void>();

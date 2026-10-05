@@ -36,6 +36,8 @@ export type NetEvent =
   | { type: 'nextWait'; waiting: number[] }
   /** 自己托管/超时代打时的决策依据（只发给本人） */
   | { type: 'decision'; seat: number; d: DecisionLog }
+  /** 暂停/继续（只有房间里只有一个真人时才允许） */
+  | { type: 'pause'; on: boolean }
   | ({ type: 'chat' } & ChatMsg);
 
 /** 断线重连时的完整状态 */
@@ -57,6 +59,8 @@ export interface Snapshot {
   auto: boolean[];
   online: boolean[];
   result: RoundResult | null;
+  /** 是否处于暂停 */
+  paused?: boolean;
 }
 
 export type ClientMsg =
@@ -73,6 +77,8 @@ export type ClientMsg =
   | { t: 'pass' }
   | { t: 'return'; card: number }
   | { t: 'auto'; on: boolean }
+  /** 暂停/继续（房间里只有一个真人时才允许） */
+  | { t: 'pause'; on: boolean }
   | { t: 'next' }
   | { t: 'chat'; kind: ChatKind; id: number; to?: number }
   /** 请求 Jev 出牌建议；ctx 由客户端按自己的视角整理（见 shared/advisor.ts 的 buildJevContext） */
