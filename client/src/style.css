@@ -239,8 +239,9 @@ html[data-skin="mint"] .egg-buddy { display: block; }
 }
 /* ---------- 托管决策面板（client/src/scene/DecisionPanel.ts） ---------- */
 .dp {
-  position: fixed; top: 12px; right: 12px; z-index: 20; width: min(380px, calc(100vw - 32px));
-  max-height: 62vh; display: flex; flex-direction: column; border-radius: 12px;
+  /* 放在右上角按钮（菜单、托管、暂停）下面，不挡住它们 */
+  position: fixed; top: 11vh; right: 12px; z-index: 20; width: min(380px, calc(100vw - 32px));
+  max-height: 58vh; display: flex; flex-direction: column; border-radius: 12px;
   background: rgba(8, 28, 20, .88); color: #f2ecd8; font-size: 13px; line-height: 1.5;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45); border: 1px solid rgba(255, 224, 138, .35);
   -webkit-user-select: text; user-select: text; touch-action: pan-y;

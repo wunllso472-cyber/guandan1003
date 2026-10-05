@@ -68,3 +68,40 @@ describe('托管决策依据', () => {
     }
   }, 30000);
 });
+
+describe('暂停', () => {
+  it('暂停时没人出牌、玩家操作被拒绝；继续后打完一局', async () => {
+    const t = new Table([false, true, true, true]);
+    t.speed = 0.001;
+    t.autoBudgetMs = 0;
+    t.setAuto(0, true);
+    let plays = 0;
+    t.on((e) => { if (e.type === 'play' || e.type === 'pass') plays++; });
+    t.start();
+    await until(() => plays >= 3);
+    t.setPaused(true);
+    const frozen = plays;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(plays).toBe(frozen);
+    expect(t.pass(0)).toBe('游戏已暂停');
+    t.setPaused(false);
+    await until(() => t.game.phase === 'roundEnd' || t.game.phase === 'gameEnd');
+    expect(plays).toBeGreaterThan(frozen);
+    t.dispose();
+  }, 30000);
+
+  it('继续后倒计时顺延，不会从头算也不会立刻超时', async () => {
+    const t = new Table([false, true, true, true]);
+    t.start();
+    // 发牌动画期间就轮到某人；等到轮到玩家（座位 0）时再暂停
+    await until(() => t.game.phase === 'play' && t.game.turn === 0, 20000);
+    const before = t.deadlines.get(0)!;
+    t.setPaused(true);
+    await new Promise((r) => setTimeout(r, 200));
+    t.setPaused(false);
+    const after = t.deadlines.get(0)!;
+    expect(after - before).toBeGreaterThanOrEqual(190);
+    expect(after - before).toBeLessThan(1000);
+    t.dispose();
+  }, 30000);
+});

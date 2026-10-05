@@ -257,6 +257,8 @@ export class Room {
       }
       return;
     }
+    // 联机不提供暂停（会影响其他玩家）
+    if (e.type === 'pause') return;
     if (e.type === 'decision') {
       // 决策依据里有该座位的手牌，只发给本人
       this.sendSeat(e.seat, { t: 'ev', e });

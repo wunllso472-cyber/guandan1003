@@ -52,6 +52,10 @@ export class TableScene extends Container {
   private sortBtn: Button;
   private autoBtn: Button;
   private menuBtn: Button;
+  /** 暂停（只有单机有） */
+  private pauseBtn: Button | null = null;
+  /** 暂停遮罩（继续时关掉） */
+  private pausedRoot: Container | null = null;
   private autoBar = new Container();
   private returnBar = new Container();
   private returnBtn: Button;
@@ -149,6 +153,7 @@ export class TableScene extends Container {
     this.sortBtn = new Button('理牌', 'green', 104, 50, () => this.toast(this.hand.sortAction()));
     this.autoBtn = new Button('托管', 'blue', 96, 46, () => this.client.setAuto(true));
     this.menuBtn = new Button('菜单', 'gray', 96, 46, () => this.showMenu());
+    if (client.setPaused) this.pauseBtn = new Button('暂停', 'gray', 96, 46, () => this.client.setPaused?.(true));
     this.chatBtn = new Button('聊天', 'blue', 104, 50, () => this.chat.togglePanel());
 
     const autoBg = new Graphics().roundRect(-220, -34, 440, 68, 34).fill({ color: 0x000000, alpha: 0.55 });
@@ -176,6 +181,7 @@ export class TableScene extends Container {
     this.addChild(this.bg, this.info);
     for (const pv of this.played) this.addChild(pv);
     for (const h of this.huds) this.addChild(h);
+    if (this.pauseBtn) this.addChild(this.pauseBtn);
     this.addChild(this.sortBtn, this.chatBtn, this.autoBtn, this.menuBtn, this.hand, this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
 
     this.watchTag = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 24, fontWeight: '900', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 } } });
@@ -250,6 +256,7 @@ export class TableScene extends Container {
     this.chat.layout(DW, DH);
     this.menuBtn.position.set(DW - PAD - 54, 34);
     this.autoBtn.position.set(DW - PAD - 160, 34);
+    this.pauseBtn?.position.set(DW - PAD - 266, 34);
     this.toastBox.position.set(DW / 2, DH - 470);
     this.watchTag.position.set(DW / 2, DH - 380);
     this.reasonText.position.set(DW / 2, DH - 432);
@@ -399,6 +406,18 @@ export class TableScene extends Container {
       case 'decision':
         if (e.seat === me) this.decisionPanel.push(e.d);
         break;
+      case 'pause':
+        if (e.on) {
+          // 倒计时停住：继续时牌桌会重新发出顺延后的截止时间
+          this.huds.forEach((h) => h.setDeadline(0));
+          this.myDeadline = 0;
+          this.showPaused();
+        } else {
+          if (this.pausedRoot && !this.pausedRoot.destroyed) this.clearOverlay();
+          this.pausedRoot = null;
+        }
+        this.refreshButtons();
+        break;
       case 'auto':
         this.huds[e.seat].setAuto(e.on);
         if (e.seat === me) {
@@ -534,6 +553,7 @@ export class TableScene extends Container {
     this.actionBar.visible = show;
     this.autoBar.visible = auto;
     this.decisionPanel.setVisible(auto);
+    if (this.pauseBtn) this.pauseBtn.visible = (g.phase === 'play' || g.phase === 'return') && !this.client.isPaused?.();
     this.autoBtn.visible = !auto && this.watching < 0;
     if (show) {
       this.passBtn.enabled = !!g.lastPlay;
@@ -763,6 +783,15 @@ export class TableScene extends Container {
       b.y = (this.client.canRestart ? -130 : -90) + i * 80;
       box.addChild(b);
     });
+  }
+
+  /** 暂停遮罩：盖住牌桌，只能点“继续” */
+  private showPaused() {
+    const box = this.panel(380, 240, '已暂停');
+    this.pausedRoot = box.parent;
+    const b = new Button('继续游戏', 'orange', 240, 64, () => this.client.setPaused?.(false));
+    b.y = 30;
+    box.addChild(b);
   }
 
   private showSettings() {

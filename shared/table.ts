@@ -18,6 +18,8 @@ export type TableEvent =
   | { type: 'auto'; seat: number; on: boolean }
   /** 托管/超时代打的决策依据（联机只发给该座位本人） */
   | { type: 'decision'; seat: number; d: DecisionLog }
+  /** 暂停/继续（只有单机会暂停） */
+  | { type: 'pause'; on: boolean }
   | ({ type: 'chat' } & ChatMsg);
 
 export class Table {
@@ -43,7 +45,7 @@ export class Table {
   mcRunner: MCRunner | null = null;
   /** 异步模拟时每手的时间预算（毫秒） */
   asyncBudgetMs = 700;
-  /** 每次轮到新的出牌人加一，用于丢弃过期的异步决策 */
+  /** 每次轮到新的出牌人（或暂停）加一，用于丢弃过期的异步决策 */
   private turnSerial = 0;
   /** 每个座位视角的记牌器（只用该座位能知道的公开信息），托管决策用 */
   private trackers = [0, 1, 2, 3].map((s) => new CardTracker(s));
@@ -51,6 +53,8 @@ export class Table {
   private timeouts = [0, 0, 0, 0];
   private timers: ReturnType<typeof setTimeout>[] = [];
   private roundStartAt = 0;
+  /** 暂停开始的时间，0 表示没有暂停 */
+  private pausedAt = 0;
   private disposed = false;
   private listeners: ((e: TableEvent) => void)[] = [];
   private lastChat = [0, 0, 0, 0];
@@ -102,7 +106,7 @@ export class Table {
   }
 
   private aiLater(ms: number, fn: () => void) {
-    const t = setTimeout(() => { this.chatTimers.delete(t); if (!this.disposed) fn(); }, ms);
+    const t = setTimeout(() => { this.chatTimers.delete(t); if (!this.disposed && !this.paused) fn(); }, ms);
     this.chatTimers.add(t);
   }
 
@@ -114,6 +118,29 @@ export class Table {
     if (e.type === 'finish' && e.place === 1 && this.isAI[e.seat] && Math.random() < 0.4) {
       this.aiLater(700, () => this.chat(e.seat, 'phrase', 3));
     }
+  }
+
+  get paused() { return this.pausedAt > 0; }
+
+  /**
+   * 暂停/继续：暂停时停掉所有出牌计时并丢弃进行中的电脑模拟；
+   * 继续时发牌动画和倒计时顺延暂停的时长（倒计时至少留 5 秒），电脑重新决策。
+   */
+  setPaused(on: boolean) {
+    if (on === this.paused || this.disposed) return;
+    if (on) {
+      this.pausedAt = Date.now();
+      this.clearTimers();
+      this.turnSerial++;
+      this.emit({ type: 'pause', on: true });
+      return;
+    }
+    const gap = Date.now() - this.pausedAt;
+    this.pausedAt = 0;
+    this.roundStartAt += gap;
+    const keep = new Map([...this.deadlines].map(([s, until]) => [s, Math.max(until + gap, Date.now() + 5000 * this.speed)]));
+    this.emit({ type: 'pause', on: false });
+    this.schedule(keep);
   }
 
   setAuto(seat: number, on: boolean) {
@@ -139,18 +166,21 @@ export class Table {
   }
 
   play(seat: number, cards: number[], combo?: Combo): string | null {
+    if (this.paused) return '游戏已暂停';
     const err = this.game.play(seat, cards, combo);
     if (!err) this.timeouts[seat] = 0;
     return err;
   }
 
   pass(seat: number): string | null {
+    if (this.paused) return '游戏已暂停';
     const err = this.game.pass(seat);
     if (!err) this.timeouts[seat] = 0;
     return err;
   }
 
   returnTribute(seat: number, cardId: number): string | null {
+    if (this.paused) return '游戏已暂停';
     return this.game.returnTribute(seat, cardId);
   }
 
@@ -197,8 +227,9 @@ export class Table {
     this.emit({ type: 'deadline', seat, until });
   }
 
-  private schedule() {
-    if (this.disposed) return;
+  /** keep：继续游戏时沿用的倒计时（座位 → 截止时间） */
+  private schedule(keep?: Map<number, number>) {
+    if (this.disposed || this.paused) return;
     this.clearTimers();
     this.deadlines.clear();
     const g = this.game;
@@ -213,7 +244,7 @@ export class Table {
         if (this.controlled(seat)) {
           this.after(this.dealDelay() + 1500 + Math.random() * 800, act);
         } else {
-          const until = Date.now() + this.dealDelay() + TURN_SECONDS * 1000 * this.speed;
+          const until = keep?.get(seat) ?? Date.now() + this.dealDelay() + TURN_SECONDS * 1000 * this.speed;
           this.setDeadline(seat, until);
           this.after((until - Date.now()) / this.speed, act);
         }
@@ -222,7 +253,7 @@ export class Table {
     }
     if (g.phase !== 'play') return;
     const seat = g.turn;
-    const until = Date.now() + this.dealDelay() + TURN_SECONDS * 1000 * this.speed;
+    const until = keep?.get(seat) ?? Date.now() + this.dealDelay() + TURN_SECONDS * 1000 * this.speed;
     this.setDeadline(seat, until);
     if (this.controlled(seat)) {
       // 困难电脑异步模拟本身要花时间，等待短一些

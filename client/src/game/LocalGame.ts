@@ -44,6 +44,8 @@ export class LocalGame implements GameClient {
   isOnline() { return true; }
   setAuto(on: boolean) { this.table.setAuto(this.mySeat, on); }
   setAiLevel(level: 'normal' | 'hard') { this.table.aiLevel = level; }
+  setPaused(on: boolean) { this.table.setPaused(on); }
+  isPaused() { return this.table.paused; }
   chat(kind: ChatKind, id: number, to?: number) { return this.table.chat(this.mySeat, kind, id, to); }
   play(cards: number[], combo?: Combo) { return this.table.play(this.mySeat, cards, combo); }
   pass() { return this.table.pass(this.mySeat); }

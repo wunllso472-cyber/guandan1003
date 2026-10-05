@@ -51,6 +51,9 @@ export interface GameClient {
   requestAdvice?(ctx: unknown, timeoutMs: number): Promise<{ ranking: string[]; confidence?: number } | null>;
   /** 设置电脑座位难度（只有单机有此方法） */
   setAiLevel?(level: 'normal' | 'hard'): void;
+  /** 暂停/继续（只有单机有此方法；联机会影响其他玩家，不提供） */
+  setPaused?(on: boolean): void;
+  isPaused?(): boolean;
   nextRound(): void;
   restart(): void;
   dispose(): void;
