@@ -3,7 +3,7 @@
 import { GuandanGame, teamOf, type GameEvent, type RoundResult } from './game';
 import { aiPlay, hintOptions } from './ai';
 import { smartReturn } from './tribute';
-import { smartDecide, smartDecideAsync, type DecisionLog, type MCRunner } from './autoplay';
+import { smartDecide, smartDecideAsync, withContext, type DecisionLog, type MCRunner } from './autoplay';
 import { CardTracker } from './tracker';
 import { isBomb, type Combo } from './combo';
 import { validateChat, CHAT_COOLDOWN_MS, type ChatKind, type ChatMsg } from './chat';
@@ -269,7 +269,11 @@ export class Table {
       const r = smartDecide(input, this.autoBudgetMs, source);
       c = r.combo;
       // 先发决策依据，再出牌：复盘日志能把依据挂到这手牌上（电脑座位不发）
-      if (r.log && !this.isAI[seat]) this.emit({ type: 'decision', seat, d: r.log });
+      if (r.log && !this.isAI[seat]) {
+        let d: DecisionLog = r.log;
+        try { d = withContext(r, input) ?? r.log; } catch (err) { console.warn('决策依据生成失败', err); }
+        this.emit({ type: 'decision', seat, d });
+      }
     } catch (err) {
       console.error('托管策略出错，改用电脑出牌', err);
       c = basic();

@@ -1,7 +1,7 @@
 // 托管出牌：与“提示”相同的策略——顾问（含教材规则库）给出候选，再用蒙特卡洛模拟从前几个候选里选团队结果最好的。
 // 托管在牌桌控制器里同步执行（单机在浏览器，联机在服务端），所以模拟限定较短的时间预算；
 // 时间内样本不够时直接用顾问的首选（顾问单独对打也略好于原电脑出牌）。
-import { advise, type Advice, type AdviceInput } from './advisor';
+import { advise, decisionContext, type Advice, type AdviceInput, type DecisionContext } from './advisor';
 import { mcStateFrom, monteCarlo, monteCarloShallow, type MCResult, type MCState } from './mc';
 import type { Combo } from './combo';
 
@@ -90,6 +90,8 @@ export interface DecisionLog {
   beliefs?: string[];
   /** 顾问排序前几名 */
   candidates: { label: string; score: number; mc?: number; reasons: string[]; rules: string[] }[];
+  /** 托管时给玩家看的局面依据（见 withContext；复盘日志不保存） */
+  ctx?: DecisionContext;
 }
 
 /** 把顾问结果和模拟结果整理成决策记录 */
@@ -112,25 +114,33 @@ export function decisionLog(adv: Advice, source: DecisionLog['source'], chosenId
   };
 }
 
-type Decision = { combo: Combo | null; log: DecisionLog | null };
+type Decision = { combo: Combo | null; log: DecisionLog | null; adv?: Advice };
+
+/** 给决策记录附上局面依据（阶段要点、三家出牌、手牌拆分、命中的教材规则）；只在要显示给玩家时调用 */
+export function withContext(d: Decision, inp: AdviceInput): DecisionLog | null {
+  if (!d.log || !d.adv) return d.log;
+  const key = (c: Combo | null) => (c ? [...c.cards].sort().join(',') : 'pass');
+  const chosen = d.adv.options.find((o) => key(o.combo) === key(d.combo));
+  return { ...d.log, ctx: decisionContext(inp, d.adv, chosen) };
+}
 
 /** 先用顾问给出候选；只有一个候选或不模拟时直接给出结果，否则返回要模拟的前几个候选 */
 function prepare(inp: AdviceInput, budgetMs: number, source: DecisionLog['source']) {
   const adv = advise(inp);
   const opts = adv.options;
   if (!opts.length) return { done: { combo: null, log: null } as Decision };
-  if (opts.length === 1 || budgetMs <= 0) return { done: { combo: opts[0].combo, log: decisionLog(adv, source, 0, 'advisor') } as Decision };
+  if (opts.length === 1 || budgetMs <= 0) return { done: { combo: opts[0].combo, log: decisionLog(adv, source, 0, 'advisor'), adv } as Decision };
   return { adv, cfg: mcConfigFor(inp.counts), top: mcCandidates(opts) };
 }
 
 /** 按模拟结果选定出法（模拟失败或样本不够时用顾问首选） */
 function finish(adv: Advice, cfg: MCConfig, top: Advice['options'], r: MCResult | null, source: DecisionLog['source']): Decision {
-  if (!r) return { combo: top[0].combo, log: decisionLog(adv, source, 0, 'advisor') };
+  if (!r) return { combo: top[0].combo, log: decisionLog(adv, source, 0, 'advisor'), adv };
   const pick = pickByMC(r, cfg);
   const best = pick?.best ?? 0;
   const log = decisionLog(adv, source, best, !pick ? 'advisor' : best ? 'mc-override' : 'mc',
     { mode: cfg.mode, samples: r.samples, gain: pick?.gain ?? 0, scores: r.scores });
-  return { combo: top[best].combo, log };
+  return { combo: top[best].combo, log, adv };
 }
 
 /** 托管出一手牌（combo 为 null 表示不出），同时给出决策依据；模拟在当前线程同步执行 */

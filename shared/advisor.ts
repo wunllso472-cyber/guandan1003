@@ -196,7 +196,7 @@ export function collectFacts(inp: AdviceInput, st: UnseenStat): { facts: string[
 }
 
 function typeName(t: string): string {
-  return ({ single: '单张', pair: '对子', triple: '三张', fullhouse: '三带二', straight: '顺子', tube: '三连对', plate: '钢板' } as Record<string, string>)[t] ?? t;
+  return ({ single: '单张', pair: '对子', triple: '三张', fullhouse: '三带二', straight: '顺子', tube: '三连对', plate: '钢板', bomb: '炸弹', straightflush: '同花顺', jokerbomb: '天王炸' } as Record<string, string>)[t] ?? t;
 }
 
 // ---------- 候选与评分 ----------
@@ -388,5 +388,63 @@ export function buildJevContext(inp: AdviceInput, adv: Advice) {
       notes: o.reasons,
       rule_hits: o.rules.map((h) => `${h.id} ${h.effect}s: ${h.en}`),
     })),
+  };
+}
+
+// ---------- 托管决策依据（给玩家看） ----------
+
+/** 各阶段的出牌要点（阶段按 rulebook.bookState 的判断：有人剩 10 张以内为残局，场上出牌 24 张以内为开局） */
+export const STAGE_FOCUS: Record<string, { name: string; focus: string[] }> = {
+  opening: { name: '开局', focus: ['理顺牌型、减少手数，先出小牌和难出的散牌', '保留炸弹和大牌，不轻易动炸', '用出牌试探对手牌路，给对家传递自己的牌型'] },
+  middle: { name: '中局', focus: ['争夺并保持出牌权，用外面压不住的牌接回牌权', '配合对家：对家的牌一般不压，顺着他擅长的牌型送牌', '盯住对手常出的牌型，不给他们顺牌'] },
+  endgame: { name: '残局', focus: ['算清各家剩余张数，确保自己或对家能先走', '对手快走时不出他能接的牌型，必要时用炸弹拦截', '对家快走时送小牌让他走，自己留好最后一手'] },
+};
+
+const GOAL_CN = { first: '争上游（还没有人出完）', second: '对家已头游，争取二游打成双上', protect: '对手已头游，保对家不当末游、阻止对方双上' } as const;
+
+/** 托管一手牌的决策依据：局面、自己的手牌、三家的出牌情况和本阶段适用的规则 */
+export interface DecisionContext {
+  stage: string;
+  focus: string[];
+  goal: string;
+  /** 本手是首出还是压牌 */
+  trick: string;
+  hand: { cards: string; plan: string[]; hands: number; bombs: number };
+  seats: { who: string; left: number; place: number; plays: number; recent: string[]; passes: string[]; known: string[] }[];
+  facts: string[];
+  /** 选中出法命中的教材规则（按阶段匹配） */
+  book: string[];
+}
+
+export function decisionContext(inp: AdviceInput, adv: Advice, chosen: AdviceOption | undefined): DecisionContext {
+  const { seat, hand, level, target, targetSeat, counts, tracker } = inp;
+  const name = (s: number) => (s === seat ? '我' : WHO_CN[WHO[rel(seat, s)]]);
+  const st = unseenStat(tracker.unseen(hand, inp.partnerHand ?? null), level);
+  const split = bestSplit(hand, level, st);
+  const sorted = [...hand].sort((a, b) => cardValue(b, level) - cardValue(a, level));
+  const stage = STAGE_FOCUS[adv.stage ?? ''] ?? { name: adv.stage ?? '未知', focus: [] };
+  return {
+    stage: stage.name,
+    focus: stage.focus,
+    goal: GOAL_CN[goalOf(seat, tracker)],
+    trick: target && targetSeat !== null ? `压${name(targetSeat)}的${comboLabel(target, level)}` : '我先出（首出）',
+    hand: {
+      cards: sorted.map((id) => cardLabel(id, level)).join(' '),
+      plan: split.combos.map((c) => comboLabel(c, level)),
+      hands: split.combos.filter((c) => !isBomb(c)).length,
+      bombs: split.combos.filter(isBomb).length,
+    },
+    // 顺序：下家、对家、上家
+    seats: [1, 2, 3].map((d) => (seat + d) % 4).map((s) => {
+      const r = tracker.seats[s];
+      return {
+        who: name(s), left: counts[s], place: r.place, plays: r.plays.length,
+        recent: r.plays.slice(-5).map((c) => comboLabel(c, level)),
+        passes: [...new Set(r.passes.filter((p) => p.seat % 2 !== s % 2).slice(-4).map((p) => typeName(p.type)))],
+        known: [...r.known].map((id) => cardLabel(id, level)),
+      };
+    }),
+    facts: adv.facts,
+    book: (chosen?.book ?? []).filter((id) => BOOK_RULES[id]).map((id) => `${id} ${BOOK_RULES[id].title}`),
   };
 }

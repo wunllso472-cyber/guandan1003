@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Table } from '../shared/table';
-import type { MCRunner } from '../shared/autoplay';
+import type { DecisionLog, MCRunner } from '../shared/autoplay';
 
 /** 等到条件成立（牌桌用 setTimeout 调度，speed 调小后等待都很短） */
 async function until(cond: () => boolean, ms = 20000) {
@@ -46,5 +46,25 @@ describe('电脑难度', () => {
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
     t.dispose();
+  }, 30000);
+});
+
+describe('托管决策依据', () => {
+  it('托管出牌时发给本人的决策依据带局面信息', async () => {
+    const t = new Table([false, true, true, true]);
+    t.speed = 0.001;
+    t.autoBudgetMs = 0;
+    const ds: DecisionLog[] = [];
+    t.on((e) => { if (e.type === 'decision') ds.push(e.d); });
+    t.setAuto(0, true);
+    t.start();
+    await until(() => t.game.phase === 'roundEnd' || t.game.phase === 'gameEnd');
+    t.dispose();
+    expect(ds.length).toBeGreaterThan(0);
+    for (const d of ds) {
+      expect(d.ctx).toBeDefined();
+      expect(['开局', '中局', '残局']).toContain(d.ctx!.stage);
+      expect(d.ctx!.seats.map((s) => s.who)).toEqual(['下家', '对家', '上家']);
+    }
   }, 30000);
 });

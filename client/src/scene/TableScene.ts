@@ -17,6 +17,7 @@ import { PlayerHud, PlayedView } from './Hud';
 import type { ClientEvent, GameClient } from '../game/types';
 import { Effects } from './Effects';
 import { ChatLayer } from './ChatLayer';
+import { DecisionPanel } from './DecisionPanel';
 import { sound } from '../audio/Sound';
 import { prefs, savePrefs } from '../game/prefs';
 import { autoPickFor } from '../game/autopick';
@@ -79,6 +80,8 @@ export class TableScene extends Container {
   private tracker: CardTracker;
   /** 复盘日志（上传服务端供开发者复盘） */
   private reviewLog: ReviewLogger;
+  /** 托管时显示每手牌的决策依据 */
+  private decisionPanel = new DecisionPanel();
   private reasonText: Text;
   private myTurn = false;
   /** 自己出完后查看对家手牌（只读） */
@@ -193,6 +196,7 @@ export class TableScene extends Container {
 
   override destroy(options?: Parameters<Container['destroy']>[0]) {
     Ticker.shared.remove(this.tickTimer, this);
+    this.decisionPanel.destroy();
     super.destroy(options);
   }
 
@@ -263,6 +267,7 @@ export class TableScene extends Container {
     switch (e.type) {
       case 'roundStart': {
         this.clearOverlay();
+        this.decisionPanel.reset();
         for (const pv of this.played) pv.clear();
         this.huds.forEach((h) => { h.setPlace(0); h.setCount(27); h.setDeadline(0); });
         this.updateInfo();
@@ -390,6 +395,9 @@ export class TableScene extends Container {
           if (win) this.fx.confetti();
           this.showRoundEnd(e.result);
         });
+        break;
+      case 'decision':
+        if (e.seat === me) this.decisionPanel.push(e.d);
         break;
       case 'auto':
         this.huds[e.seat].setAuto(e.on);
@@ -525,6 +533,7 @@ export class TableScene extends Container {
     const show = this.myTurn && !auto && g.phase === 'play';
     this.actionBar.visible = show;
     this.autoBar.visible = auto;
+    this.decisionPanel.setVisible(auto);
     this.autoBtn.visible = !auto && this.watching < 0;
     if (show) {
       this.passBtn.enabled = !!g.lastPlay;

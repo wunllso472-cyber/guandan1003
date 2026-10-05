@@ -146,7 +146,7 @@ export class ReviewLogger {
           // 出牌后手牌已更新，把出掉的牌加回去得到出牌前的手牌
           const before = e.type === 'play' ? [...g.hands[me], ...e.combo.cards] : g.hands[me];
           entry.hand = before.map((id) => cardLabel(id, this.level));
-          if (this.pendingWhy) entry.why = this.pendingWhy;
+          if (this.pendingWhy) { const { ctx: _ctx, ...why } = this.pendingWhy; entry.why = why; }
           else if (this.pendingSug) entry.sug = this.pendingSug;
           if (this.pendingHint) entry.hint = this.pendingHint;
           this.pendingWhy = this.pendingSug = this.pendingHint = null;
