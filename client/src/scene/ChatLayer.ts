@@ -18,6 +18,8 @@ export interface ChatHost {
   rel(seat: number): number;
   toast(text: string): void;
   shakeHud(seat: number): void;
+  /** 掀桌子：翻转桌面（只有掀桌和被掀的人会翻），翻完返回 true；不翻时返回 false */
+  flipTable?(from: number, to: number, onLand: () => void): Promise<boolean>;
 }
 
 export class ChatLayer extends Container {
@@ -35,6 +37,7 @@ export class ChatLayer extends Container {
     this.props = new PropFx({
       seatPos: (s) => host.seatPos(s), shakeHud: (s) => host.shakeHud(s), shake: (st, ms) => host.fx.shake(st, ms),
       bounds: () => ({ w: this.DW, h: this.DH }),
+      flipTable: host.flipTable && ((from, to, onLand) => host.flipTable!(from, to, onLand)),
     });
     this.addChild(this.props, this.panel, this.picker);
     this.panel.visible = false;

@@ -19,6 +19,8 @@ export interface PropHost {
   shake(strength: number, ms: number): void;
   /** 画面大小（大字不超出屏幕） */
   bounds(): { w: number; h: number };
+  /** 掀桌子：翻转整个桌面，翻完返回 true；不翻（旁观的人、正在翻）返回 false */
+  flipTable?(from: number, to: number, onLand: () => void): Promise<boolean>;
 }
 
 const PI = Math.PI;
@@ -57,7 +59,7 @@ export class PropFx extends Container {
         case 'bomb': await this.bomb(a, b, to); break;
         case 'punch': await this.punch(a, b, to); break;
         case 'dragon': await this.dragon(a, b, to); break;
-        case 'flip': await this.flip(a, b, to); break;
+        case 'flip': await this.flip(a, b, from, to); break;
       }
     } catch (err) {
       // 动画过程中离开牌桌，对象已被销毁；牌桌还在时才是真的出错
@@ -564,8 +566,23 @@ export class PropFx extends Container {
 
   // ---------- 掀桌子 ----------
 
-  private async flip(a: Point, b: Point, to: number) {
+  /** 桌面翻过去砸下时：轰的一声、强烈震屏，四周纸牌飞散、扬起尘土 */
+  private tableCrash() {
+    sound.play('crash');
+    this.host.shake(16, 520);
+    const { w, h } = this.host.bounds();
+    for (let i = 0; i < 12; i++) {
+      const e = i % 4, k = (Math.floor(i / 4) + 0.5) / 3;
+      const [x, y, ang] = e === 0 ? [w * k, 8, PI * 1.5] : e === 1 ? [w - 8, h * k, 0] : e === 2 ? [w * k, h - 8, PI * 0.5] : [8, h * k, PI];
+      this.front.burst({ kind: 'card', x, y, count: 3, speed: [120, 300], angle: [ang + PI - 0.9, ang + PI + 0.9], life: [700, 1100], scale: [0.6, 0.9], gravity: 500, spin: 12 });
+      this.back.burst({ kind: 'smoke', x, y, count: 3, spread: 30, speed: [30, 120], life: [700, 1100], scale: [0.6, 1], grow: 0.6, drag: 1.5, colors: [0xd9c3a0] });
+    }
+  }
+
+  private async flip(a: Point, b: Point, from: number, to: number) {
     this.shout('(╯°□°)╯︵ ┻━┻', a.x, this.callY(a, 165, 130), 30);
+    // 掀桌和被掀的人：整个桌面翻过去再归位；其他人：牌桌飞过去砸人
+    if (await this.host.flipTable?.(from, to, () => this.tableCrash())) return;
     // 桌子从扔的人面前掀起来，牌飞出去
     const s = this.sprite('flip', 118, a.x, a.y - 10);
     s.alpha = 0;

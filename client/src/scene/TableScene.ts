@@ -3,10 +3,10 @@ import { rankName } from '@shared/cards';
 import { comboName, resolvePlay, type Combo } from '@shared/combo';
 import { partnerOf, teamOf, type GameEvent, type RoundResult } from '@shared/game';
 import { CardTracker } from '@shared/tracker';
-import { advise, buildJevContext, type AdviceOption } from '@shared/advisor';
+import { advise, buildJevContext, decisionContext, type AdviceOption } from '@shared/advisor';
 import { preferLooseCards } from '@shared/ai';
 import { mcStateFrom } from '@shared/mc';
-import { MC_MAXCARDS, decisionLog, mcCandidates, mcConfigFor, pickByMC } from '@shared/autoplay';
+import { MC_MAXCARDS, decisionLog, mcCandidates, mcConfigFor, pickByMC, type DecisionLog } from '@shared/autoplay';
 import { ReviewLogger } from '../game/reviewLog';
 import { runMonteCarlo } from '../game/mcClient';
 import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable } from '../gfx/textures';
@@ -18,6 +18,7 @@ import type { ClientEvent, GameClient } from '../game/types';
 import { Effects } from './Effects';
 import { ChatLayer } from './ChatLayer';
 import { DecisionPanel } from './DecisionPanel';
+import { TableFlip } from './TableFlip';
 import { sound } from '../audio/Sound';
 import { prefs, savePrefs } from '../game/prefs';
 import { autoPickFor } from '../game/autopick';
@@ -76,6 +77,11 @@ export class TableScene extends Container {
   private hintList: AdviceOption[] = [];
   private hintIdx = 0;
   private hintBusy = false;
+  /** 本手提示的决策依据（双击“提示”时显示） */
+  private hintDecision: DecisionLog | null = null;
+  /** 双击判定：上一次点“提示”的时间；提示还在推演时双击，算完再打开 */
+  private lastHintTap = 0;
+  private hintPanelPending = false;
   /** 当前提示的来源：模拟 / Jev / 本地顾问 */
   private hintSource: 'mc' | 'jev' | 'local' = 'local';
   /** 每次轮到新的出牌人加一，用于丢弃过期的 Jev 结果 */
@@ -86,6 +92,9 @@ export class TableScene extends Container {
   private reviewLog: ReviewLogger;
   /** 托管时显示每手牌的决策依据 */
   private decisionPanel = new DecisionPanel();
+  /** 桌面层：背景、级牌信息、出牌区、四个头像（掀桌子时整体翻转；手牌和按钮不在里面） */
+  private tableLayer = new Container();
+  private flipper = new TableFlip(this.tableLayer, () => ({ w: this.DW, h: this.DH }));
   private reasonText: Text;
   private myTurn = false;
   /** 自己出完后查看对家手牌（只读） */
@@ -113,6 +122,9 @@ export class TableScene extends Container {
       rel: (seat) => (seat - client.mySeat + 4) % 4,
       toast: (t) => this.toast(t),
       shakeHud: (seat) => this.shakeHud(seat),
+      // 掀桌子：只有掀桌的人和被掀的人看到桌面翻转
+      flipTable: (from, to, onLand) => (client.mySeat === from || client.mySeat === to
+        ? this.flipper.run((from - client.mySeat + 4) % 4, onLand) : Promise.resolve(false)),
     });
 
     // 左上角级牌信息
@@ -144,7 +156,7 @@ export class TableScene extends Container {
     }
 
     this.passBtn = new Button('不出', 'gray', 150, 64, () => this.doPass());
-    this.hintBtn = new Button('提示', 'blue', 150, 64, () => this.doHint());
+    this.hintBtn = new Button('提示', 'blue', 150, 64, () => this.onHintTap());
     this.playBtn = new Button('出牌', 'orange', 150, 64, () => this.doPlay());
     this.passBtn.x = -190; this.playBtn.x = 190;
     this.actionBar.addChild(this.passBtn, this.hintBtn, this.playBtn);
@@ -178,9 +190,10 @@ export class TableScene extends Container {
     this.toastBox.addChild(tbg, this.toastText);
     this.toastBox.alpha = 0;
 
-    this.addChild(this.bg, this.info);
-    for (const pv of this.played) this.addChild(pv);
-    for (const h of this.huds) this.addChild(h);
+    this.tableLayer.addChild(this.bg, this.info);
+    for (const pv of this.played) this.tableLayer.addChild(pv);
+    for (const h of this.huds) this.tableLayer.addChild(h);
+    this.addChild(this.tableLayer);
     if (this.pauseBtn) this.addChild(this.pauseBtn);
     this.addChild(this.sortBtn, this.chatBtn, this.autoBtn, this.menuBtn, this.hand, this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
 
@@ -203,6 +216,7 @@ export class TableScene extends Container {
   override destroy(options?: Parameters<Container['destroy']>[0]) {
     Ticker.shared.remove(this.tickTimer, this);
     this.decisionPanel.destroy();
+    this.flipper.cancel();
     this.reviewLog.dispose();
     super.destroy(options);
   }
@@ -229,6 +243,7 @@ export class TableScene extends Container {
 
   layout(DW: number, DH: number) {
     this.DW = DW; this.DH = DH;
+    this.flipper.cancel();
     const s = Math.max(DW / 1800, DH / 900);
     this.bg.scale.set(s);
     this.bg.position.set((DW - 1800 * s) / 2, (DH - 900 * s) / 2);
@@ -327,6 +342,8 @@ export class TableScene extends Container {
         this.reasonText.alpha = 0;
         if (this.myTurn && !this.client.isAuto(me) && this.watching < 0) sound.play('turn');
         this.hintList = [];
+        this.hintDecision = null;
+        this.hintPanelPending = false;
         this.hintIdx = 0;
         this.refreshButtons();
         break;
@@ -471,6 +488,8 @@ export class TableScene extends Container {
     if (g.lastPlay) this.played[g.lastPlay.seat].showCards(g.lastPlay.combo.cards, g.level);
     this.myTurn = g.phase === 'play' && g.turn === me;
     this.hintList = [];
+    this.hintDecision = null;
+    this.hintPanelPending = false;
     this.refreshButtons();
     this.refreshReturnBar();
   }
@@ -582,6 +601,19 @@ export class TableScene extends Container {
    * 提示：本地顾问给出候选与理由。
    * 先用蒙特卡洛模拟决定首选；手机太慢、模拟不够时，联机再请 Jev 排序（最多等 2 秒）。
    */
+  /** 单击：给提示（再点换下一个）；双击：打开决策面板，显示这手提示的依据 */
+  private onHintTap() {
+    const now = performance.now();
+    if (now - this.lastHintTap < 350) {
+      this.lastHintTap = 0;
+      if (this.hintDecision) this.decisionPanel.showManual(this.hintDecision);
+      else this.hintPanelPending = true;
+      return;
+    }
+    this.lastHintTap = now;
+    void this.doHint();
+  }
+
   private async doHint() {
     if (this.hintBusy) return;
     if (!this.hintList.length) {
@@ -642,6 +674,11 @@ export class TableScene extends Container {
       this.hintList = this.alignToColumns(opts);
       this.hintIdx = 0;
       if (adv.options.length) this.reviewLog.noteHint(hintLog);
+      // 附上局面依据，双击提示时显示（chosen 按提示首选的出法找回顾问里的那一项）
+      const key = (c: Combo | null | undefined) => (c ? [...c.cards].sort().join(',') : 'pass');
+      const chosen = adv.options.find((o) => key(o.combo) === key(opts[0]?.combo));
+      this.hintDecision = { ...hintLog, chosen: opts[0]?.label ?? hintLog.chosen, ctx: decisionContext(input, adv, chosen) };
+      if (this.hintPanelPending) { this.hintPanelPending = false; this.decisionPanel.showManual(this.hintDecision); }
     }
     if (!this.hintList.some((o) => o.combo)) {
       this.toast('没有能大过上家的牌');

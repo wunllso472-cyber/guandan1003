@@ -1,4 +1,4 @@
-// 托管决策面板：托管时显示每手牌的决策依据（最上面是牌力评估和打法，然后是阶段与要点、三家出牌、自己的手牌、命中的规则、候选对比）。
+// 决策面板：托管时自动显示每手牌的决策依据；双击“提示”时也会打开，显示那手提示的依据（最上面是牌力评估和打法，然后是阶段与要点、三家出牌、自己的手牌、命中的规则、候选对比）。
 // 用 DOM 浮层而不是画布文字：内容多，需要滚动和换行。
 import type { DecisionLog } from '@shared/autoplay';
 
@@ -17,6 +17,11 @@ export class DecisionPanel {
   private idx = -1;
   private open = true;
   private shown = false;
+  /** 托管中 */
+  private auto = false;
+  /** 双击提示手动打开（点“关闭”前一直显示） */
+  private manual = false;
+  private closeBtn: HTMLButtonElement;
 
   constructor() {
     this.root.className = 'dp';
@@ -29,7 +34,8 @@ export class DecisionPanel {
       fold.textContent = this.open ? '收起' : '展开';
       this.body.style.display = this.open ? '' : 'none';
     });
-    head.append(this.title, prev, next, fold);
+    this.closeBtn = this.btn('关闭', () => { this.manual = false; this.apply(); });
+    head.append(this.title, prev, next, fold, this.closeBtn);
     this.body.className = 'dp-body';
     this.root.append(head, this.body);
     this.root.style.display = 'none';
@@ -56,7 +62,24 @@ export class DecisionPanel {
     this.render();
   }
 
-  setVisible(on: boolean) {
+  /** 托管开关（托管时自动显示） */
+  setVisible(auto: boolean) {
+    this.auto = auto;
+    this.apply();
+  }
+
+  /** 手动打开并显示这条决策（双击提示） */
+  showManual(d: DecisionLog) {
+    this.manual = true;
+    if (!this.open) { this.open = true; this.body.style.display = ''; }
+    this.push(d);
+    this.apply();
+  }
+
+  private apply() {
+    const on = this.auto || this.manual;
+    // 托管中不需要“关闭”（托管时一直显示，可以收起）
+    this.closeBtn.style.display = this.manual && !this.auto ? '' : 'none';
     if (on === this.shown) return;
     this.shown = on;
     this.root.style.display = on ? '' : 'none';
@@ -72,7 +95,7 @@ export class DecisionPanel {
 
   private render() {
     const d = this.list[this.idx];
-    this.title.textContent = d ? `决策依据 ${this.idx + 1}/${this.list.length}` : '决策依据';
+    this.title.textContent = d ? `${d.source === 'hint' ? '提示依据' : '决策依据'} ${this.idx + 1}/${this.list.length}` : '决策依据';
     if (!d) { this.body.innerHTML = '<div class="dp-none">托管出牌后，这里会显示每手牌的决策依据</div>'; return; }
     const c = d.ctx;
     const mc = d.mc ? `（${d.mc.mode === 'full' ? '模拟到整局结束' : '模拟到本轮结束'}，${d.mc.samples} 局${d.method === 'mc-override' ? `，多赢 ${d.mc.gain} 级` : ''}）` : '';
