@@ -104,7 +104,7 @@ export class DecisionPanel {
     if (pw) {
       parts.push(`<div class="dp-power"><div><b>牌力</b>${esc(pw.level)}（${pw.points} 分）　<b>打法</b><em>${esc(pw.role)}</em></div>`
         + `<div class="dp-why">${esc(pw.why)}</div><div class="dp-plan">${esc(pw.detail)}</div>`
-        + (c?.outside ? `<div class="dp-out"><b>外面</b>${c.outside.map((o) => `<span class="${o.left ? '' : 'dp-zero'}">${esc(o.name)} <em>${o.left}</em>/${o.total}${o.note ? `（${esc(o.note)}）` : ''}</span>`).join('')}</div>` : '')
+        + (c?.outside ? `<div class="dp-out"><b>外面</b>${c.outside.map((o) => `<span class="${o.left ? '' : 'dp-zero'}">${esc(o.name)} <em>${o.left}</em>${o.note ? `（${esc(o.note)}）` : ''}</span>`).join('')}</div>` : '')
         + '</div>');
     }
     parts.push(`<div class="dp-pick">出：<b>${esc(d.chosen)}</b><span>${esc(METHOD_CN[d.method] + mc)}</span></div>`);
