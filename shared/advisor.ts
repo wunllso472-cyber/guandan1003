@@ -438,7 +438,7 @@ const GOAL_CN = { first: '争上游（还没有人出完）', second: '对家已
 export interface DecisionContext {
   /** 牌力评估和打法（面板最上面） */
   power?: { level: string; points: number; detail: string; role: string; why: string };
-  /** 外面（两副牌的总数减去自己手里的）大王、小王、级牌（含逢人配）、A、K 各几张；total 是两副牌的总数 */
+  /** 外面（其他三家手里还有的：总数减去自己手里的和已经打出去的）大王、小王、级牌（含逢人配）、A、K 各几张；total 是两副牌的总数 */
   outside?: { name: string; left: number; total: number; note?: string }[];
   stage: string;
   focus: string[];
@@ -460,15 +460,13 @@ export function decisionContext(inp: AdviceInput, adv: Advice, chosen: AdviceOpt
   const sorted = [...hand].sort((a, b) => cardValue(b, level) - cardValue(a, level));
   const stage = STAGE_FOCUS[adv.stage ?? ''] ?? { name: adv.stage ?? '未知', focus: [] };
   const pw = adv.power;
-  // 外面 = 总数 − 自己手里的（打出去的也算外面）
-  const mine = (r: number) => hand.filter((id) => card(id).rank === r && !isWild(id, level)).length;
-  const myWilds = hand.filter((id) => isWild(id, level)).length;
-  const cnt = (r: number) => (r >= SMALL_JOKER ? 2 : 8) - mine(r);
-  const wildsOut = 2 - myWilds;
+  // 外面 = 其他三家手里还有的：总数 − 自己手里的 − 已经打出去的（自己出完后看得到的对家手牌也还在外面）
+  const out = unseenStat(tracker.unseen(hand), level);
+  const cnt = (r: number) => out.byRank.get(r) ?? 0;
   const outside: NonNullable<DecisionContext['outside']> = [
     { name: '大王', left: cnt(BIG_JOKER), total: 2 },
     { name: '小王', left: cnt(SMALL_JOKER), total: 2 },
-    { name: `级牌${rankName(level)}`, left: cnt(level) - myWilds, total: 8, ...(wildsOut ? { note: `含逢人配 ${wildsOut}` } : {}) },
+    { name: `级牌${rankName(level)}`, left: cnt(level) + out.wilds, total: 8, ...(out.wilds ? { note: `含逢人配 ${out.wilds}` } : {}) },
     // 打 A 或打 K 时它们就是级牌，不重复列
     ...[14, 13].filter((r) => r !== level).map((r) => ({ name: rankName(r), left: cnt(r), total: 8 })),
   ];

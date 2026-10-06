@@ -236,20 +236,20 @@ describe('决策理由与牌力评估', () => {
 });
 
 describe('外面的大牌张数', () => {
-  it('总数减去自己手里的：打出去的也算外面；级牌含逢人配', () => {
+  it('其他三家还有的：总数减自己手里的、再减打出去的；级牌含逢人配', () => {
     const used = new Set<number>();
     const tr = setup(2);
-    // 对手打出过一张大王、一张 A，这些仍算外面
+    // 对手打出过一张大王、一张 A，不再算外面
     const played = ids('BJ SA', used);
     for (const id of played) tr.apply({ type: 'play', seat: 1, combo: parseCombos([id], 2)[0], left: 20 });
     const hand = ids('BJ H2 S2 CA DK S5 C6', used);
     const inp = { seat: 0, hand, level: 2, target: null, targetSeat: null, counts: [7, 20, 27, 27], tracker: tr };
     const adv = advise(inp);
     expect(decisionContext(inp, adv, top(adv)).outside).toEqual([
-      { name: '大王', left: 1, total: 2 },
+      { name: '大王', left: 0, total: 2 },
       { name: '小王', left: 2, total: 2 },
       { name: '级牌2', left: 6, total: 8, note: '含逢人配 1' },
-      { name: 'A', left: 7, total: 8 },
+      { name: 'A', left: 6, total: 8 },
       { name: 'K', left: 7, total: 8 },
     ]);
   });
