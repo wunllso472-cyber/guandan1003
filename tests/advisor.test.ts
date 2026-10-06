@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DECK, card, type Suit } from '../shared/cards';
 import { parseCombos } from '../shared/combo';
 import { CardTracker } from '../shared/tracker';
-import { advise, buildJevContext, controlOf } from '../shared/advisor';
+import { advise, buildJevContext, controlOf, decisionContext } from '../shared/advisor';
 import { unseenStat } from '../shared/tracker';
 
 function ids(spec: string, used = new Set<number>()): number[] {
@@ -223,6 +223,15 @@ describe('决策理由与牌力评估', () => {
     expect(adv.options.find((o) => o.label === '对A')!.reasons.join()).toContain('没必要花掉对A');
     // 没有炸弹、小牌多：牌力弱，打助攻
     expect(adv.power).toMatchObject({ strength: 'weak', role: 'support', bombs: 0 });
+    // 外面的大牌：手里有两张 A、两张 K，没有王和 2
+    const ctx = decisionContext({ seat: 0, hand, level: 2, target, targetSeat: 3, counts: [27, 27, 27, 25], tracker: tr }, adv, top(adv));
+    expect(ctx.outside).toEqual([
+      { name: '大王', left: 2, total: 2 },
+      { name: '小王', left: 2, total: 2 },
+      { name: '级牌2', left: 8, total: 8, note: '含逢人配 2' },
+      { name: 'A', left: 6, total: 8 },
+      { name: 'K', left: 6, total: 8 },
+    ]);
   });
 });
 

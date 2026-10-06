@@ -256,6 +256,10 @@ html[data-skin="mint"] .egg-buddy { display: block; }
 .dp-power { margin-bottom: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 224, 138, .1); border: 1px solid rgba(255, 224, 138, .25); }
 .dp-power em { font-style: normal; font-weight: 700; color: #fff; }
 .dp-why { margin-top: 2px; }
+.dp-out { margin-top: 5px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.dp-out span { padding: 1px 7px; border-radius: 10px; background: rgba(255, 255, 255, .1); font-size: 12px; white-space: nowrap; }
+.dp-out span em { font-style: normal; font-weight: 700; color: #fff; font-size: 13px; }
+.dp-out span.dp-zero { opacity: .5; }
 .dp-pick { font-size: 15px; }
 .dp-pick b { color: #fff; font-size: 16px; }
 .dp-pick span { display: block; font-size: 12px; color: #b9c9bd; }
