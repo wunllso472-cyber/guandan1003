@@ -2,7 +2,7 @@
 import { card, cardValue, isWild, rankName, value, BIG_JOKER, SMALL_JOKER, type Suit } from './cards';
 import { bombLevel, canBeat, comboName, isBomb, type Combo } from './combo';
 import { findAllPlays } from './finder';
-import { bestSplit, aiPlay, preferLooseCards } from './ai';
+import { bestSplit, aiPlay, preferLooseCards, bombGuard } from './ai';
 import { CardTracker, sameTypeBeatable, unseenStat, type UnseenStat } from './tracker';
 import { evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
 import { BOOK_RULES, bookGuidance, bookHits, bookState, type BookInput, type Power } from './rulebook';
@@ -353,7 +353,9 @@ export function advise(inp: AdviceInput): Advice {
   const aiKey = ai ? [...ai.cards].sort().join(',') : 'pass';
   for (const o of options) {
     const k = o.combo ? [...o.combo.cards].sort().join(',') : 'pass';
-    if (k === aiKey && !o.features?.finishes) o.score -= 3;
+    // 拆炸弹的出法不加这份优先：否则“会拆掉炸弹”的扣分被完全盖过（安全拆炸除外，见 CHECK_REST 的支持）
+    const safeSplit = o.rules.some((h) => h.id === 'CHECK_REST' && h.weight < 0);
+    if (k === aiKey && !o.features?.finishes && !(bombGuard.enabled && o.features?.breaksBomb && !safeSplit)) o.score -= 3;
   }
   options.sort((a, b) => a.score - b.score);
   return { options, facts, inferred, stage: bs.stage, power: bs.power };

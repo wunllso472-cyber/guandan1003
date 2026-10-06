@@ -294,22 +294,40 @@ export class Table {
         });
       return;
     }
-    // 玩家托管、超时，或同步执行的困难电脑：与“提示”相同的策略
+    // 玩家托管、超时：有后台模拟线程时交给它（预算与困难电脑相同，样本多、也不卡住服务器），回来时已不是这一手就丢弃
+    if (!this.isAI[seat] && this.mcRunner) {
+      const serial = this.turnSerial;
+      smartDecideAsync(input, this.asyncBudgetMs, this.mcRunner, source)
+        .then((r) => {
+          if (this.disposed || serial !== this.turnSerial || g.phase !== 'play' || g.turn !== seat) return;
+          this.emitDecision(seat, r, input);
+          this.apply(seat, r.combo);
+        }, (err) => {
+          console.error('托管策略出错，改用电脑出牌', err);
+          if (this.disposed || serial !== this.turnSerial || g.phase !== 'play' || g.turn !== seat) return;
+          this.apply(seat, basic());
+        });
+      return;
+    }
+    // 同步执行（没有后台线程时）：与“提示”相同的策略
     let c: Combo | null;
     try {
       const r = smartDecide(input, this.autoBudgetMs, source);
       c = r.combo;
-      // 先发决策依据，再出牌：复盘日志能把依据挂到这手牌上（电脑座位不发）
-      if (r.log && !this.isAI[seat]) {
-        let d: DecisionLog = r.log;
-        try { d = withContext(r, input) ?? r.log; } catch (err) { console.warn('决策依据生成失败', err); }
-        this.emit({ type: 'decision', seat, d });
-      }
+      this.emitDecision(seat, r, input);
     } catch (err) {
       console.error('托管策略出错，改用电脑出牌', err);
       c = basic();
     }
     this.apply(seat, c);
+  }
+
+  /** 先发决策依据，再出牌：复盘日志能把依据挂到这手牌上（电脑座位不发） */
+  private emitDecision(seat: number, r: ReturnType<typeof smartDecide>, input: Parameters<typeof withContext>[1]) {
+    if (!r.log || this.isAI[seat]) return;
+    let d: DecisionLog = r.log;
+    try { d = withContext(r, input) ?? r.log; } catch (err) { console.warn('决策依据生成失败', err); }
+    this.emit({ type: 'decision', seat, d });
   }
 
   private apply(seat: number, c: Combo | null) {

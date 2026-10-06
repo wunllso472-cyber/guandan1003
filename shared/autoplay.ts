@@ -53,8 +53,22 @@ export function mcConfigFor(counts: number[]): MCConfig {
 }
 
 /** 根据模拟结果决定是否推翻顾问首选：返回选中的候选下标和多赢的级数 */
+/**
+ * 样本不足 minSamples 时，至少有一半样本、且最优比首选多出 3 倍 margin（残局 0.75 级）才采纳；
+ * 联机托管在服务器上常常只跑出 8~10 局，差距再大也被丢弃。enabled=false 恢复旧逻辑，评估用。
+ * 评估（托管每手只给 40 毫秒模拟，连同 bombGuard 一起对旧逻辑，800 局）：每局净升级 +0.107 ±0.106。
+ */
+export const mcLowSample = { enabled: true };
+
 export function pickByMC(r: MCResult | null, cfg: MCConfig): { best: number; gain: number } | null {
-  if (!r || r.samples < cfg.minSamples) return null;
+  if (!r) return null;
+  if (r.samples < cfg.minSamples) {
+    if (!mcLowSample.enabled || r.samples < Math.ceil(cfg.minSamples / 2)) return null;
+    let best = 0;
+    r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
+    const gain = r.scores[best] - r.scores[0];
+    return best !== 0 && gain >= cfg.margin * 3 ? { best, gain } : null;
+  }
   let best = 0;
   r.scores.forEach((v, i) => { if (v > r.scores[best] + 1e-9) best = i; });
   const gain = r.scores[best] - r.scores[0];

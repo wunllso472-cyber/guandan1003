@@ -345,6 +345,8 @@ interface Scored {
   delta: number;
   /** 是否从连牌（顺子/三连对/钢板）里拆牌，且出完后剩余牌需要的手数没有减少 */
   breaksChain: boolean;
+  /** 不是炸弹，却拆了手里的炸弹（如 4 个 9 拆一张去跟单张） */
+  breaksBomb: boolean;
 }
 
 const handsOf = (split: Split) => split.combos.filter((c) => !isBomb(c)).length;
@@ -358,6 +360,9 @@ export function followOptions(ctx: AIContext): Scored[] {
   const groups = baseSplit.combos.map((x) => x.cards);
   const chainCards = new Set(baseSplit.combos.filter((x) => x.type === 'straight' || x.type === 'tube' || x.type === 'plate').flatMap((x) => x.cards));
   const cands = findAllPlays(hand, level, target);
+  // 每个点数手里几张（不含逢人配），判断是否拆炸弹
+  const have = new Map<number, number>();
+  for (const id of hand) if (!isWild(id, level)) have.set(card(id).rank, (have.get(card(id).rank) ?? 0) + 1);
   const scored = cands.map((c0) => {
     const combo = preferLooseCards(c0, hand, level, groups);
     const rest = without(hand, combo.cards);
@@ -365,7 +370,8 @@ export function followOptions(ctx: AIContext): Scored[] {
     const s = split ? split.score : -10;
     const delta = s - base + (isBomb(combo) ? 1.2 + bombLevel(combo) * 0.05 : 0) + combo.value * 0.01;
     const breaksChain = !!split && !isBomb(combo) && combo.cards.some((id) => chainCards.has(id)) && handsOf(split) >= baseHands;
-    return { combo, delta, breaksChain };
+    const breaksBomb = !isBomb(combo) && combo.cards.some((id) => !isWild(id, level) && (have.get(card(id).rank) ?? 0) >= 4);
+    return { combo, delta, breaksChain, breaksBomb };
   });
   return scored.sort((a, b) => a.delta - b.delta);
 }
@@ -382,6 +388,16 @@ export const aiTake = { cards: 0 };
  * 顾问 +0.137 ±0.070（1000 局）。
  */
 export const bombAlt = { enabled: true };
+
+/**
+ * 不拆炸弹去跟牌：用掉一个炸弹后最多再一手就能走完时，找非炸弹出法、以及“有更便宜的非炸弹就不动炸弹”，都排除拆炸弹的出法
+ * （例如手里 4 个 9、4 个 5，上家剩 2 张出单张，旧逻辑会拆一张 9 去跟，而 4炸(5) 后再出 4炸(9) 就能走完）。
+ * 对手不可能有炸弹、拆出来的这手外面压不住时仍可以拆。
+ * 评估（scripts/bench.ts，对旧逻辑配对对打）：电脑 +0.029 ±0.011、+0.023 ±0.010（两组牌各 4000 局）；顾问 +0.024 ±0.029（4000 局）。
+ * 一律不拆（不管用炸弹后能否走完）时电脑 −0.033 ±0.036、−0.029 ±0.033，所以只在“炸完很快走完”时生效。
+ * 顾问也不再给拆炸弹的“电脑首选”加优先。enabled=false 恢复旧逻辑，评估用（scripts/bench.ts 策略名加 ~old）。
+ */
+export const bombGuard = { enabled: true };
 
 export function aiPlay(ctx: AIContext): Combo | null {
   const c = decide(ctx);
@@ -401,8 +417,15 @@ function decide(ctx: AIContext): Combo | null {
   const oppLeft = targetSeat !== null ? handCounts[targetSeat] : 27;
   const urgent = oppLeft <= 6;
   const nonBomb = opts.filter((o) => !isBomb(o.combo));
-  // 不急的时候不为了跟牌拆散已有的牌型（例如从顺子里拆一张去跟单张）
-  const pick = nonBomb.find((o) => o.delta <= (urgent ? 3 : -0.35) && (urgent || !o.breaksChain));
+  // 对手都不可能有炸弹（剩的牌都不到 4 张）、拆出来的这手外面又压不住时，拆炸是好事（如 4 个 Q 拆两对，能两次收回出牌权）
+  const oppsNoBomb = [1, 3].map((d) => handCounts[(seat + d) % 4]).every((n) => n < 4);
+  const safeSplit = (o: Scored) => oppsNoBomb && !!ctx.unseen && !sameTypeBeatable(o.combo, ctx.unseen, ctx.level);
+  // 只在“用掉一个炸弹后最多再一手就能走完”时不拆炸弹（评估：一律不拆反而略差，有时拆一张去压确实比整个炸弹用掉划算）
+  const sprintBomb = bombGuard.enabled && opts.some((o) => isBomb(o.combo)
+    && bestSplit(without(hand, o.combo.cards), ctx.level, ctx.unseen).combos.filter((c) => !isBomb(c)).length <= 1);
+  const keepsBombs = (o: Scored) => !(sprintBomb && o.breaksBomb && !safeSplit(o));
+  // 不急的时候不为了跟牌拆散已有的牌型（例如从顺子里拆一张去跟单张）；也不拆炸弹
+  const pick = nonBomb.find((o) => o.delta <= (urgent ? 3 : -0.35) && (urgent || !o.breaksChain) && keepsBombs(o));
   if (pick) return pick.combo;
   // 对手剩的牌不多时，用外面同类压不住的牌（如对手出小王、自己有大王）收回出牌权，不让他顺下去
   if (aiTake.cards > 0 && ctx.unseen && oppLeft <= aiTake.cards) {
@@ -417,7 +440,7 @@ function decide(ctx: AIContext): Combo | null {
   if (oppLeft <= 8 || restCombos <= 2 || (bigTarget && hand.length <= 15)) {
     if (isBomb(target) && oppLeft > 8 && restCombos > 2) return null;
     // 能用更便宜的牌（如王）压住就不动炸弹
-    const cheaper = bombAlt.enabled ? nonBomb.find((o) => !o.breaksChain && o.delta < bombs[0].delta) : undefined;
+    const cheaper = bombAlt.enabled ? nonBomb.find((o) => !o.breaksChain && keepsBombs(o) && o.delta < bombs[0].delta) : undefined;
     return (cheaper ?? bombs[0]).combo;
   }
   return null;

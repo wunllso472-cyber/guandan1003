@@ -282,3 +282,21 @@ describe('拆炸弹的理由', () => {
     expect(pq.reasons.join()).toContain('剩下的牌未必更好走');
   });
 });
+
+describe('跟牌不拆炸弹', () => {
+  it('手里 4 个 9 和 4 个 5，上家剩 2 张出单张：用炸弹压，不拆 9', async () => {
+    const { aiPlay } = await import('../shared/ai');
+    const used = new Set<number>();
+    const tr = setup(3);
+    const six = ids('C6', used);
+    const target = parseCombos(six, 3)[0];
+    tr.apply({ type: 'play', seat: 3, combo: target, left: 2 });
+    const hand = ids('H9 C9 D9 D9 H5 C5 C5 D5', used);
+    const counts = [8, 14, 5, 2];
+    const ai = aiPlay({ seat: 0, hand, level: 3, target, targetSeat: 3, handCounts: counts });
+    expect(ai?.type).toBe('bomb');
+    const adv = advise({ seat: 0, hand, level: 3, target, targetSeat: 3, counts, tracker: tr });
+    expect(top(adv).combo?.type).toBe('bomb');
+    expect(adv.options.find((o) => o.label === '单张9')!.score).toBeGreaterThan(top(adv).score);
+  });
+});
