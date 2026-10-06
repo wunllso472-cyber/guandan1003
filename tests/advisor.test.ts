@@ -225,3 +225,31 @@ describe('决策理由与牌力评估', () => {
     expect(adv.power).toMatchObject({ strength: 'weak', role: 'support', bombs: 0 });
   });
 });
+
+describe('拆炸弹的理由', () => {
+  /** 外面已经没有比 Q 大的牌（K、A、2、王都出过了），对手出对10 */
+  function endgame(prevLeft: number) {
+    const used = new Set<number>();
+    const tr = setup(2);
+    const gone = ids('SK SK HK HK CK CK DK DK SA SA HA HA CA CA DA DA S2 S2 H2 H2 C2 C2 D2 D2 SJ SJ BJ BJ', used);
+    for (const id of gone) tr.apply({ type: 'play', seat: 2, combo: parseCombos([id], 2)[0], left: 0 });
+    const tens = ids('D10 D10', used);
+    const target = parseCombos(tens, 2)[0];
+    tr.apply({ type: 'play', seat: 3, combo: target, left: prevLeft });
+    const hand = ids('SQ HQ CQ DQ S10 S9 D9', used);
+    return advise({ seat: 0, hand, level: 2, target, targetSeat: 3, counts: [7, 1, 0, prevLeft], tracker: tr });
+  }
+
+  it('对手都不可能有炸弹、拆开的两对都压不住：拆炸是支持理由', () => {
+    const adv = endgame(3);
+    const pq = adv.options.find((o) => o.label === '对Q')!;
+    expect(top(adv).label).toBe('对Q');
+    expect(pq.reasons.join()).toContain('不可能有炸弹');
+    expect(pq.reasons.join()).not.toContain('剩下的牌未必更好走');
+  });
+
+  it('对手还可能有炸弹时，仍提示拆炸的风险', () => {
+    const pq = endgame(5).options.find((o) => o.label === '对Q')!;
+    expect(pq.reasons.join()).toContain('剩下的牌未必更好走');
+  });
+});

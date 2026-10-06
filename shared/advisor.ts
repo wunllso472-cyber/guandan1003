@@ -286,10 +286,18 @@ export function advise(inp: AdviceInput): Advice {
   // 教材规则库：先算与候选无关的局面特征
   const bookIn: BookInput = { seat, hand, level, target, targetSeat, counts, tracker, baseCombos: base.combos, controlOf: (x) => controlOf(x, st, level) };
   const bs = bookState(bookIn);
+  // 对手剩的牌都不到 4 张时不可能有炸弹（炸弹至少 4 张）
+  const oppNoBomb = [next, prev].every((s) => !active(s) || counts[s] < 4);
   for (const o of options) {
     const f = o.features!;
     const rest = restOf.get(o)!;
     const c = o.combo!;
+    // 安全拆炸：这手和剩下含被拆点数的组合，外面都压不住
+    let bombSplitSafe = false;
+    if (f.breaksBomb && oppNoBomb && f.control !== 'beatable') {
+      const broken = new Set(c.cards.filter((id) => !isWild(id, level) && (have.get(card(id).rank) ?? 0) >= 4).map((id) => card(id).rank));
+      bombSplitSafe = rest.filter((x) => x.cards.some((id) => broken.has(card(id).rank))).every((x) => controlOf(x, st, level) !== 'beatable');
+    }
     const canRecapture = rest.some((x) => x.type === c.type && x.cards.length === c.cards.length && x.value > c.value && controlOf(x, st, level) !== 'beatable');
     const book = bookHits(bookIn, bs, { combo: c, features: f, rest, baseHands, canRecapture });
     const hits = [...evaluateRules({
@@ -300,6 +308,7 @@ export function advise(inp: AdviceInput): Advice {
       safeLastExists,
       breaksLinks: !urgent && !f.finishes && !f.isBomb && f.handsLeft >= baseHands,
       maxGateSingle,
+      bombSplitSafe,
     }), ...book.hits];
     o.rules = hits;
     o.book = book.matched.map((r) => r.id);

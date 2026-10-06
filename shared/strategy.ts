@@ -93,7 +93,15 @@ export interface RuleContext {
   breaksLinks: boolean;
   /** 可选单张中不超过 A 的最大点值（传牌门槛用），没有时为 0 */
   maxGateSingle: number;
+  /** 拆炸弹但很安全：对手剩的牌都不到 4 张（不可能有炸弹），拆开后这手和剩下的同点数牌外面都压不住 */
+  bombSplitSafe?: boolean;
 }
+
+/**
+ * 安全拆炸不再按“拆炸”扣分，改为支持（enabled=false 恢复旧逻辑，评估用：scripts/bench.ts 策略名加 ~old）。
+ * 评估（advisor 对 advisor~old，4000 局）：每局净升级 +0.001 ±0.001，局面很少出现，不变差；主要是理由写对。
+ */
+export const splitSafeRule = { enabled: true };
 
 export type Goal = 'first' | 'second' | 'protect';
 
@@ -176,7 +184,10 @@ export function evaluateRules(c: RuleContext): RuleHit[] {
 
   // 拆牌前做剩牌检查 / 保护连接牌
   if (c.breaksLinks && !f.breaksBomb) hits.push(hit('KEEP_LINKS', 'oppose', 1.0, '会拆散已有的牌型', 'breaks an existing straight/pair/triple without reducing the number of plays left'));
-  if (f.breaksBomb) hits.push(hit('CHECK_REST', 'oppose', 0.8, '会拆掉炸弹，剩下的牌未必更好走', 'breaks a bomb without clearly shortening the hand'));
+  if (f.breaksBomb && c.bombSplitSafe && splitSafeRule.enabled) {
+    hits.push(hit('CHECK_REST', 'support', -0.5, '对手剩的牌都不到 4 张，不可能有炸弹；拆开后每一手外面都压不住，能多次收回出牌权',
+      'opponents hold fewer than 4 cards each (no bombs possible) and every piece of the split bomb is unbeatable, so splitting wins the lead more than once'));
+  } else if (f.breaksBomb) hits.push(hit('CHECK_REST', 'oppose', 0.8, '会拆掉炸弹，剩下的牌未必更好走', 'breaks a bomb without clearly shortening the hand'));
 
   // 优先防止对手直接走完：对手刚出的牌，对手剩得很少时，压住它
   if (target && targetSeat !== null && targetSeat !== partner && active(targetSeat) && counts[targetSeat] <= 5) {
