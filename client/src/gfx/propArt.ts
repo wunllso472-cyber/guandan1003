@@ -248,8 +248,39 @@ function drawSoot(g: CanvasRenderingContext2D) {
   }
 }
 
+/** 卡通拳头（侧视，拳面朝右；旋转到出拳方向用） */
+function drawFist(g: CanvasRenderingContext2D) {
+  const INK = '#5a2a10';
+  // 袖口
+  g.fillStyle = linear(g, 0, 40, 0, 92, [[0, '#ff5a4a'], [1, '#c41f1f']]);
+  g.beginPath(); rr(g, 6, 42, 30, 48, 8); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 3; g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(14, 44, 6, 44);
+  // 手背
+  const skin = linear(g, 0, 30, 0, 100, [[0, '#ffe2c2'], [0.6, '#ffc896'], [1, '#e89a62']]);
+  g.fillStyle = skin;
+  g.beginPath(); rr(g, 30, 30, 62, 68, 20); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 3; g.stroke();
+  // 四根弯曲的手指（拳面）
+  for (let i = 0; i < 4; i++) {
+    const y = 30 + i * 16;
+    g.fillStyle = skin;
+    g.beginPath(); rr(g, 70, y, 46, 17, 8.5); g.fill();
+    g.strokeStyle = INK; g.lineWidth = 3; g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.45)';
+    g.beginPath(); g.ellipse(100, y + 5, 8, 2.5, 0, 0, TAU); g.fill();
+  }
+  // 大拇指压在前面
+  g.fillStyle = skin;
+  g.beginPath(); rr(g, 44, 70, 48, 20, 10); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 3; g.stroke();
+  g.strokeStyle = 'rgba(90,42,16,0.5)'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(80, 74); g.lineTo(80, 86); g.stroke();
+  shine(g, 50, 42, 12, 6, -0.3, 0.6);
+}
+
 const PROP_DRAW: Record<string, (g: CanvasRenderingContext2D) => void> = {
-  flower: drawBouquet, heart: drawHeart, beer: drawBeer, egg: drawEgg, splat: drawSplat, bomb: drawBomb, soot: drawSoot,
+  flower: drawBouquet, heart: drawHeart, beer: drawBeer, egg: drawEgg, splat: drawSplat, bomb: drawBomb, soot: drawSoot, punch: drawFist,
 };
 const propCache = new Map<string, Texture>();
 /** 道具贴图（128×128 逻辑尺寸） */
@@ -336,6 +367,26 @@ export const PROP_PARTICLES = {
     g.fillStyle = radial(g, 9, 18, 1, 12, 20, 12, [[0, '#fff3a6'], [0.5, '#ffc21a'], [1, '#e67e00']]);
     g.beginPath(); g.moveTo(12, 2); g.bezierCurveTo(16, 12, 22, 16, 22, 21); g.arc(12, 21, 10, 0, Math.PI); g.bezierCurveTo(2, 16, 8, 12, 12, 2); g.fill();
     shine(g, 9, 18, 3, 2, -0.5, 0.9);
+    return c;
+  },
+  /** 漫画爆击星（不上色）：锯齿星形，黄心橙边 */
+  pow: () => {
+    const { c, g } = canvas(96);
+    const star = (r0: number, r1: number) => {
+      g.beginPath();
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * TAU + 0.1;
+        const r = i % 2 ? r0 : r1 * (0.85 + 0.15 * Math.sin(i * 1.7));
+        g.lineTo(48 + Math.cos(a) * r, 48 + Math.sin(a) * r);
+      }
+      g.closePath();
+    };
+    star(22, 46);
+    g.fillStyle = radial(g, 48, 48, 4, 48, 48, 46, [[0, '#fffbd0'], [0.45, '#ffd21a'], [1, '#ff8a00']]);
+    g.fill();
+    g.strokeStyle = '#b33a00'; g.lineWidth = 3; g.stroke();
+    star(10, 22);
+    g.fillStyle = '#ffffff'; g.fill();
     return c;
   },
   /** 爆炸碎屑（不上色） */

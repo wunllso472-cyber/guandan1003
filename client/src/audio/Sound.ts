@@ -40,7 +40,7 @@ function loadSettings(): AudioSettings {
 export type Sfx =
   | 'click' | 'deal' | 'play' | 'pass' | 'select' | 'tick' | 'warn' | 'bomb' | 'bigbomb' | 'shine'
   | 'win' | 'lose' | 'tribute' | 'chat' | 'flower' | 'heart' | 'beer' | 'egg' | 'boom' | 'turn'
-  | 'whoosh' | 'fuse' | 'thump' | 'sparkle';
+  | 'whoosh' | 'fuse' | 'thump' | 'sparkle' | 'punch';
 
 class SoundEngine {
   settings = loadSettings();
@@ -275,6 +275,12 @@ class SoundEngine {
         break;
       case 'thump': this.tone(90, 0.12, 'sine', 0.45, t, 55); this.tone(80, 0.14, 'sine', 0.35, t + 0.2, 50); break;
       case 'sparkle': this.arp([2093, 2637, 3136, 4186], 0.045, 'sine', 0.07, t); break;
+      case 'punch':
+        // 闷响 + 拍击声
+        this.noiseHit(t, 0.09, 900, 0.4, 'lowpass');
+        this.noiseHit(t, 0.03, 2800, 0.14, 'bandpass');
+        this.tone(150 + Math.random() * 40, 0.09, 'sine', 0.35, t, 60);
+        break;
       case 'egg':
         this.noiseHit(t, 0.06, 1800, 0.4, 'bandpass');
         this.noiseHit(t + 0.05, 0.25, 600, 0.35, 'lowpass');

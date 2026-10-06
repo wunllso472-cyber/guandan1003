@@ -38,6 +38,8 @@ export const PROPS = [
   { key: 'beer', name: '干杯' },
   { key: 'egg', name: '鸡蛋' },
   { key: 'bomb', name: '炸弹' },
+  // 新道具只能追加在最后：编号就是下标，电脑回敬按编号判断（3 及以后是“攻击”类）
+  { key: 'punch', name: '暴打' },
 ] as const;
 
 export interface ChatMsg { seat: number; kind: ChatKind; id: number; to?: number }

@@ -1,6 +1,7 @@
 // 互动道具特效：道具沿弧线飞向目标头像（飞行中放大、带拖尾），命中后按道具播放多段动画。
 // 鲜花：花束弹出 + 花瓣炸开 + 花瓣雨；爱心：两次心跳后炸成满天小爱心；干杯：两只酒杯蓄力碰杯、泡沫飞溅；
-// 鸡蛋：压扁砸开、蛋壳飞溅、蛋黄往下流；炸弹：引线嗞嗞、弹体闪红，爆炸冲击波后头像被熏黑冒烟。
+// 鸡蛋：压扁砸开、蛋壳飞溅、蛋黄往下流；炸弹：引线嗞嗞、弹体闪红，爆炸冲击波后头像被熏黑冒烟；
+// 暴打：一堆拳头从四面八方连环出拳，最后一记重拳砸下，头上冒金星。
 import { Container, FillGradient, Point, Sprite, Text } from 'pixi.js';
 import { particleTexture, propTexture } from '../gfx/emoji';
 import { Particles } from '../gfx/particles';
@@ -50,9 +51,11 @@ export class PropFx extends Container {
         case 'beer': await this.beer(a, b); break;
         case 'egg': await this.egg(a, b, to); break;
         case 'bomb': await this.bomb(a, b, to); break;
+        case 'punch': await this.punch(a, b, to); break;
       }
-    } catch {
-      // 动画过程中离开牌桌，对象已被销毁
+    } catch (err) {
+      // 动画过程中离开牌桌，对象已被销毁；牌桌还在时才是真的出错
+      if (!this.destroyed) console.warn('道具特效出错', err);
     }
   }
 
@@ -110,9 +113,9 @@ export class PropFx extends Container {
   }
 
   /** 金色大字（如“干杯！”） */
-  private shout(text: string, x: number, y: number) {
+  private shout(text: string, x: number, y: number, size = 40) {
     const fill = new FillGradient({ type: 'linear', start: { x: 0, y: 0 }, end: { x: 0, y: 1 }, colorStops: [{ offset: 0, color: 0xfffbe0 }, { offset: 0.5, color: 0xffd34d }, { offset: 1, color: 0xf08a00 }], textureSpace: 'local' });
-    const t = new Text({ text, style: { fontFamily: FONT_UI, fontSize: 40, fontWeight: '900', fill, stroke: { color: 0x5a2800, width: 7 }, letterSpacing: 2, dropShadow: { color: 0x000000, alpha: 0.4, blur: 4, distance: 3, angle: PI / 2 } } });
+    const t = new Text({ text, style: { fontFamily: FONT_UI, fontSize: size, fontWeight: '900', fill, stroke: { color: 0x5a2800, width: 7 }, letterSpacing: 2, dropShadow: { color: 0x000000, alpha: 0.4, blur: 4, distance: 3, angle: PI / 2 } } });
     t.anchor.set(0.5);
     t.position.set(x, y);
     t.scale.set(0.3);
@@ -345,5 +348,109 @@ export class PropFx extends Container {
     }, this.alive(soot));
     await tween(soot, { alpha: 0 }, 600);
     soot.destroy();
+  }
+
+  // ---------- 暴打 ----------
+
+  /** 漫画拟声字（砰、啪…），弹出后淡出 */
+  private onomatopoeia(x: number, y: number) {
+    const words = ['砰', '啪', '嘭', '咚'];
+    const fill = new FillGradient({ type: 'linear', start: { x: 0, y: 0 }, end: { x: 0, y: 1 }, colorStops: [{ offset: 0, color: 0xfff6a0 }, { offset: 1, color: 0xff7a00 }], textureSpace: 'local' });
+    const t = new Text({ text: words[Math.floor(Math.random() * words.length)] + '！', style: { fontFamily: FONT_UI, fontSize: 30, fontWeight: '900', fill, stroke: { color: 0x8a1500, width: 6 } } });
+    t.anchor.set(0.5);
+    t.position.set(x, y);
+    t.rotation = (Math.random() - 0.5) * 0.6;
+    t.scale.set(0.4);
+    this.top.addChild(t);
+    void tween(t, { scale: 1.1 }, 140, { ease: ease.outBack })
+      .then(() => tween(t, { alpha: 0, y: y - 18 }, 300, { delay: 180 }))
+      .then(() => { if (!t.destroyed) t.destroy(); });
+  }
+
+  /** 拳头打中：爆击星弹出、火花、偶尔冒拟声字 */
+  private impact(x: number, y: number, big = false) {
+    sound.play('punch');
+    const p = new Sprite(particleTexture('pow'));
+    p.anchor.set(0.5);
+    p.position.set(x, y);
+    p.rotation = Math.random() * PI;
+    p.scale.set(big ? 0.35 : 0.2);
+    this.front.addChild(p);
+    void tween(p, { scale: big ? 0.95 : 0.5 }, big ? 160 : 110, { ease: ease.outBack })
+      .then(() => tween(p, { alpha: 0, scale: big ? 1.05 : 0.55 }, big ? 260 : 160))
+      .then(() => { if (!p.destroyed) p.destroy(); });
+    this.front.burst({ kind: 'streak', x, y, count: big ? 14 : 5, speed: big ? [300, 560] : [200, 380], life: [140, 260], scale: [0.2, 0.4], colors: [0xffffff, 0xfff3a0], alignVel: true, drag: 3 });
+  }
+
+  /** 一只拳头：从 angle 方向的远处冲向头像边缘，打中后缩回淡出 */
+  private async jab(b: Point, angle: number, size: number) {
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    const f = this.sprite('punch', size, b.x + dx * 130, b.y + dy * 130);
+    f.rotation = angle + PI; // 拳面朝向头像
+    f.alpha = 0;
+    // 先往后蓄一下力，再猛地打出去
+    await tween(f, { alpha: 1, x: b.x + dx * 140, y: b.y + dy * 140 }, 60);
+    await tween(f, { x: b.x + dx * 46, y: b.y + dy * 46 }, 70, { ease: easeIn });
+    this.impact(b.x + dx * 26, b.y + dy * 26);
+    await tween(f, { x: b.x + dx * 70, y: b.y + dy * 70, alpha: 0 }, 160);
+    f.destroy();
+  }
+
+  private async punch(a: Point, b: Point, to: number) {
+    // 第一拳从扔的人那里飞过来，拳面朝飞行方向
+    const s = this.sprite('punch', 64, a.x, a.y);
+    let px = a.x, py = a.y;
+    await this.fly(s, a, b, 460, {
+      spin: 0, arc: 90,
+      trail: (x, y) => {
+        s.rotation = Math.atan2(y - py, x - px);
+        px = x; py = y;
+        if (Math.random() < 0.6) this.back.burst({ kind: 'streak', x, y, count: 1, speed: [0, 10], life: [120, 200], scale: [0.4, 0.6], colors: [0xffffff], alpha: 0.6 });
+      },
+    });
+    const dir = Math.atan2(b.y - a.y, b.x - a.x);
+    this.impact(b.x - Math.cos(dir) * 26, b.y - Math.sin(dir) * 26);
+    this.host.shakeHud(to);
+    s.destroy();
+    // 一堆拳头四面八方连环出拳
+    const hits = 14;
+    const jabs: Promise<void>[] = [];
+    for (let i = 0; i < hits; i++) {
+      const angle = Math.random() * PI * 2;
+      jabs.push(wait(60 + i * 85 + Math.random() * 30).then(() => (this.destroyed ? undefined : this.jab(b, angle, 54 + Math.random() * 14))));
+      if (i % 3 === 1) this.later(130 + i * 85, () => this.onomatopoeia(b.x + (Math.random() - 0.5) * 120, b.y - 40 - Math.random() * 40));
+    }
+    await Promise.all(jabs);
+    // 最后一记重拳从头顶砸下
+    const k = this.sprite('punch', 96, b.x, b.y - 190);
+    k.rotation = PI / 2;
+    k.alpha = 0;
+    await tween(k, { alpha: 1, y: b.y - 200 }, 90);
+    await tween(k, { y: b.y - 40 }, 110, { ease: easeIn });
+    this.impact(b.x, b.y - 20, true);
+    this.pulse('ring', b.x, b.y, { from: 0.3, to: 1.4, dur: 450, color: 0xffd34d });
+    this.host.shake(7, 220);
+    this.host.shakeHud(to);
+    this.shout('暴打！', b.x, b.y - 100, 44);
+    await tween(k, { y: b.y - 90, alpha: 0 }, 260);
+    k.destroy();
+    // 头上冒金星，转几圈
+    const stars = [0, 1, 2].map(() => {
+      const st = new Sprite(particleTexture('star'));
+      st.anchor.set(0.5);
+      st.tint = 0xffe14a;
+      st.scale.set(0.42);
+      this.front.addChild(st);
+      return st;
+    });
+    await frames(1300, (t, ms) => {
+      stars.forEach((st, i) => {
+        const a2 = ms / 1000 * 6 + (i * PI * 2) / 3;
+        st.position.set(b.x + Math.cos(a2) * 44, b.y - 52 + Math.sin(a2) * 12);
+        st.rotation = ms / 1000 * 5;
+        st.alpha = t < 0.75 ? 1 : (1 - t) / 0.25;
+      });
+    }, this.alive(...stars));
+    stars.forEach((st) => st.destroy());
   }
 }
