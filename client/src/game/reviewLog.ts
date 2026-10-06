@@ -1,4 +1,5 @@
-// 复盘日志：记录每一局的出牌过程和每次决策的依据，局末保存在本地并上传服务端（/logs），供开发者复盘策略。
+// 复盘日志：记录每一局的出牌过程和每次决策的依据，打牌过程中实时上传服务端（/logs，同一局按编号覆盖），
+// 暂停、离开牌桌、关页面和局末同时保存在本地，供开发者复盘策略。
 // 单机能看到四家起手牌，一并记录；联机只记录自己的手牌和公开信息。
 import { advise, cardLabel, comboLabel } from '@shared/advisor';
 import { decisionLog, type DecisionLog } from '@shared/autoplay';
@@ -47,6 +48,12 @@ export interface RoundRecord {
   hands: Record<number, string[]>;
   log: Entry[];
   result?: { order: number[]; winTeam: number; up: number; note?: string; levelsAfter: [string, string] };
+  /** 本局还在进行中（实时上传的中间状态） */
+  live?: boolean;
+  /** 最后更新时间 */
+  upd?: string;
+  /** 已给出但还没执行的托管决策（含局面依据，即决策面板上的最新一条） */
+  pending?: DecisionLog;
 }
 
 const STORE = 'gd_review_v1';
@@ -65,16 +72,20 @@ function saveRound(r: RoundRecord) {
   } catch { /* 存储满或被禁用：只上传 */ }
 }
 
-async function upload(rounds: RoundRecord[]) {
+async function upload(rounds: RoundRecord[], keepalive = false) {
   const url = logsUrl();
   if (!url || !rounds.length) return;
   // 分批，单次请求不超过服务端的大小限制
   for (let i = 0; i < rounds.length; i += 6) {
     try {
-      await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rounds: rounds.slice(i, i + 6) }) });
+      // keepalive：关页面时请求也能发出去（浏览器限制 64KB，超出会失败，本地已保存，下次打开再补传）
+      await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rounds: rounds.slice(i, i + 6) }), keepalive });
     } catch { return; }
   }
 }
+
+/** 实时上传的最短间隔（毫秒）：期间的多次变化合并成一次 */
+const LIVE_INTERVAL = 1500;
 
 /** 页面打开时补传本地保存的局（服务端重启后数据会丢，按局编号去重） */
 export function syncReviewLogs() {
@@ -87,8 +98,34 @@ export class ReviewLogger {
   private pendingSug: DecisionLog | null = null;
   private pendingHint: DecisionLog | null = null;
   private leadNext = true;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private onHide = () => this.flush(true);
 
-  constructor(private client: GameClient, private tracker: CardTracker) {}
+  constructor(private client: GameClient, private tracker: CardTracker) {
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', this.onHide);
+  }
+
+  /** 离开牌桌：把进行中的局保存并上传 */
+  dispose() {
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.onHide);
+    this.flush(true);
+  }
+
+  /** 稍后上传本局当前状态（合并短时间内的多次变化） */
+  private schedule() {
+    if (!this.rec || this.timer) return;
+    this.timer = setTimeout(() => { this.timer = null; this.flush(); }, LIVE_INTERVAL);
+  }
+
+  /** 立即上传本局当前状态；save 时同时保存到本地 */
+  private flush(save = false) {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    const r = this.rec;
+    if (!r) return;
+    r.upd = new Date().toISOString();
+    if (save) saveRound(r);
+    void upload([r], save);
+  }
 
   private get level() { return this.client.game.level; }
   private cards(ids: number[]) { return ids.map((id) => cardLabel(id, this.level)).join(' '); }
@@ -111,6 +148,7 @@ export class ReviewLogger {
           levels: [rankName(e.levels[0]), rankName(e.levels[1])],
           hands: Object.fromEntries(e.hands.map((h, s) => [s, h.map((id) => cardLabel(id, e.level))]).filter(([, h]) => (h as string[]).length)),
           log: [],
+          live: true,
         };
         this.leadNext = true;
         this.pendingWhy = this.pendingSug = this.pendingHint = null;
@@ -133,8 +171,15 @@ export class ReviewLogger {
         }
         break;
       case 'decision':
-        if (e.seat === me) this.pendingWhy = e.d;
+        if (e.seat === me) {
+          this.pendingWhy = e.d;
+          if (this.rec) this.rec.pending = e.d;
+        }
         break;
+      case 'pause':
+        // 暂停时多半要看日志：立即上传并保存
+        if (e.on) this.flush(true);
+        return;
       case 'play':
       case 'pass': {
         if (!this.rec) break;
@@ -150,6 +195,7 @@ export class ReviewLogger {
           else if (this.pendingSug) entry.sug = this.pendingSug;
           if (this.pendingHint) entry.hint = this.pendingHint;
           this.pendingWhy = this.pendingSug = this.pendingHint = null;
+          delete this.rec.pending;
         }
         this.rec.log.push(entry);
         break;
@@ -167,12 +213,16 @@ export class ReviewLogger {
         const res = e.result;
         r.result = { order: res.order, winTeam: res.winTeam, up: res.up, note: res.note, levelsAfter: [rankName(res.levelsAfter[0]), rankName(res.levelsAfter[1])] };
         r.log.push({ t: 'trick', note: `本局${teamOf(me) === res.winTeam ? '我方' : '对方'}胜，升 ${res.up} 级` });
-        saveRound(r);
-        void upload([r]);
+        delete r.live;
+        delete r.pending;
+        this.flush(true);
         this.rec = null;
-        break;
+        return;
       }
+      default:
+        return;
     }
+    this.schedule();
   }
 
   /** 点“提示”得到的建议 */

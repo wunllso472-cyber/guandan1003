@@ -203,6 +203,7 @@ export class TableScene extends Container {
   override destroy(options?: Parameters<Container['destroy']>[0]) {
     Ticker.shared.remove(this.tickTimer, this);
     this.decisionPanel.destroy();
+    this.reviewLog.dispose();
     super.destroy(options);
   }
 

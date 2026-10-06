@@ -37,7 +37,7 @@ function decision(tag: string, d: DecisionLog): string[] {
 function print(r: RoundRecord) {
   const name = (s?: number) => (s === undefined ? '' : r.players[s]?.split('（')[0] ?? `座位${s}`);
   const out: string[] = [];
-  out.push(`=== ${r.at}  ${r.mode === 'local' ? '单机' : '联机'}  打 ${r.level}（双方 ${r.levels.join(' : ')}）  编号 ${r.id}`);
+  out.push(`=== ${r.at}  ${r.mode === 'local' ? '单机' : '联机'}  打 ${r.level}（双方 ${r.levels.join(' : ')}）  编号 ${r.id}${r.live ? `  【进行中，更新于 ${r.upd ?? '?'}】` : ''}`);
   out.push(`玩家：${r.players.map((p, s) => `${s}=${p}`).join('  ')}`);
   for (const [s, h] of Object.entries(r.hands)) out.push(`起手 ${name(Number(s))}（${h.length}）：${h.join(' ')}`);
   let trick = 1;
@@ -51,6 +51,10 @@ function print(r: RoundRecord) {
     if (x.why) out.push(...decision(x.why.source === 'timeout' ? '超时代打' : '托管', x.why));
     if (x.sug) out.push(...decision('手动出牌，策略当时建议', x.sug));
     if (x.hint) out.push(...decision('点了提示', x.hint));
+  }
+  if (r.pending) {
+    const c = r.pending.ctx;
+    out.push(...decision(`还没执行的托管决策${c ? `（${c.trick}；我的手牌 ${c.hand.cards}）` : ''}`, r.pending));
   }
   if (r.result) out.push(`结果：名次 ${r.result.order.map(name).join(' > ')}，${r.result.winTeam === r.me % 2 ? '我方' : '对方'}升 ${r.result.up} 级${r.result.note ? '，' + r.result.note : ''}，级数 ${r.result.levelsAfter.join(' : ')}`);
   console.log(out.join('\n') + '\n');

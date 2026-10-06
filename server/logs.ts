@@ -1,4 +1,4 @@
-// 复盘日志：客户端每局结束上传本局出牌和决策依据，供开发者（Claude）复盘策略时读取。
+// 复盘日志：客户端打牌过程中实时上传本局出牌和决策依据（同一局按编号覆盖，进行中的局带 live），供开发者（Claude）复盘策略时读取。
 // 只存在内存里（Render 免费版重启或休眠会清空）；客户端本地也保存最近的局，重新打开页面时补传，按局编号去重。
 // 读取需要密钥：代码里只放密钥的 SHA-256（仓库公开），密钥本身在本地 .env.local 的 GD_LOG_KEY。
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -23,6 +23,10 @@ function store(rec: unknown) {
   if (!rec || typeof rec !== 'object') return;
   const id = (rec as { id?: unknown }).id;
   if (typeof id !== 'string' || id.length > 64) return;
+  // 请求可能乱序到达：不用旧的状态覆盖新的（upd 是 ISO 时间，可直接按字符串比较）
+  const upd = (rec as { upd?: unknown }).upd;
+  const old = rounds.get(id)?.rec.upd;
+  if (typeof upd === 'string' && typeof old === 'string' && upd < old) return;
   rounds.delete(id);
   rounds.set(id, { at: Date.now(), rec: rec as Record<string, unknown> });
   while (rounds.size > MAX_ROUNDS) rounds.delete(rounds.keys().next().value!);

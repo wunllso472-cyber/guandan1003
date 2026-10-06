@@ -5,7 +5,7 @@ import { ReviewLogger, type RoundRecord } from '../client/src/game/reviewLog';
 import { CardTracker } from '../shared/tracker';
 import type { GameEvent } from '../shared/game';
 
-it('托管打完一局：日志记录每手牌和决策依据，并上传', async () => {
+it('托管打完一局：日志实时上传，记录每手牌和决策依据', async () => {
   const sent: RoundRecord[] = [];
   vi.stubGlobal('fetch', async (_url: string, init: { body: string }) => {
     sent.push(...(JSON.parse(init.body).rounds as RoundRecord[]));
@@ -17,7 +17,14 @@ it('托管打完一局：日志记录每手牌和决策依据，并上传', asyn
   const tracker = new CardTracker(0);
   const log = new ReviewLogger(game, tracker);
   let ended = false;
-  game.on((e) => { tracker.apply(e as GameEvent); log.onEvent(e); if (e.type === 'roundEnd') ended = true; });
+  let paused = false;
+  game.on((e) => {
+    tracker.apply(e as GameEvent);
+    log.onEvent(e);
+    if (e.type === 'roundEnd') ended = true;
+    // 第一次托管决策后模拟一次暂停：应立即上传进行中的局，带上还没执行的决策
+    if (e.type === 'decision' && e.seat === 0 && !paused) { paused = true; log.onEvent({ type: 'pause', on: true }); }
+  });
   game.setAuto(true);
   game.start();
   for (let i = 0; i < 2000 && !ended; i++) await new Promise((r) => setTimeout(r, 5));
@@ -25,8 +32,13 @@ it('托管打完一局：日志记录每手牌和决策依据，并上传', asyn
   vi.unstubAllGlobals();
 
   expect(ended).toBe(true);
-  expect(sent.length).toBe(1);
-  const r = sent[0];
+  // 同一局多次上传：进行中的快照 + 局末的完整记录
+  expect(new Set(sent.map((x) => x.id)).size).toBe(1);
+  const live = sent.find((x) => x.live && x.pending);
+  expect(live?.pending?.ctx).toBeDefined();
+  const r = sent[sent.length - 1];
+  expect(r.live).toBeUndefined();
+  expect(r.pending).toBeUndefined();
   // 调试：GD_DUMP_LOG=文件 把这一局的日志写出来，可用 scripts/review.ts --file 查看
   if (process.env.GD_DUMP_LOG) writeFileSync(process.env.GD_DUMP_LOG, JSON.stringify(sent));
   expect(Object.keys(r.hands).length).toBe(4); // 单机记录四家起手牌
