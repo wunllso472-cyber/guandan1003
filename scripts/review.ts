@@ -27,7 +27,7 @@ async function load(): Promise<RoundRecord[]> {
 function decision(tag: string, d: DecisionLog): string[] {
   const how = { advisor: '顾问首选', mc: '模拟后保留首选', 'mc-override': '模拟推翻首选', jev: 'Jev' }[d.method];
   const mc = d.mc ? `，${d.mc.mode === 'full' ? '残局' : '浅层'}模拟 ${d.mc.samples} 次，最优比首选多 ${d.mc.gain}` : '';
-  const lines = [`      ${tag}：选「${d.chosen}」（${how}${mc}；阶段 ${d.stage ?? '?'}）`];
+  const lines = [`      ${tag}：选「${d.chosen}」（${how}${mc}；阶段 ${d.stage ?? '?'}${d.power ? `；牌力 ${d.power}` : ''}）`];
   for (const c of d.candidates.slice(0, 5)) {
     lines.push(`        · ${c.label.padEnd(10)} 分 ${String(c.score).padStart(6)}${c.mc !== undefined ? ` 模拟 ${c.mc}` : ''}  ${c.reasons.join('；')}${c.rules.length ? `  [${c.rules.join(' ')}]` : ''}`);
   }

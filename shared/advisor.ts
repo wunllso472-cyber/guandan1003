@@ -5,7 +5,7 @@ import { findAllPlays } from './finder';
 import { bestSplit, aiPlay, preferLooseCards } from './ai';
 import { CardTracker, sameTypeBeatable, unseenStat, type UnseenStat } from './tracker';
 import { evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
-import { BOOK_RULES, bookGuidance, bookHits, bookState, type BookInput } from './rulebook';
+import { BOOK_RULES, bookGuidance, bookHits, bookState, type BookInput, type Power } from './rulebook';
 import { profileConfidence, profileSeats } from './inference';
 
 export type Control = 'unbeatable' | 'bombOnly' | 'beatable';
@@ -49,6 +49,8 @@ export interface Advice {
   options: AdviceOption[];
   /** 按实际局面判断的阶段 */
   stage?: string;
+  /** 自己的牌力评估和打法 */
+  power?: Power;
   facts: string[];
   inferred: Inference[];
 }
@@ -309,6 +311,7 @@ export function advise(inp: AdviceInput): Advice {
     o.reasons = [...new Set([...(f.finishes ? ['一手出完'] : []), ...ruleNotes, ...o.reasons])];
     if (!o.reasons.length) o.reasons.push(f.handsLeft <= 1 ? '出完后很快就能走完' : `出完后还剩 ${f.handsLeft} 手牌`);
   }
+  noteSmallestPeer(options, !!target);
 
   if (target) {
     // “不出”的评分：参照电脑的跟牌规则
@@ -344,7 +347,27 @@ export function advise(inp: AdviceInput): Advice {
     if (k === aiKey && !o.features?.finishes) o.score -= 3;
   }
   options.sort((a, b) => a.score - b.score);
-  return { options, facts, inferred, stage: bs.stage };
+  return { options, facts, inferred, stage: bs.stage, power: bs.power };
+}
+
+/**
+ * 同一牌型、出完剩下手数一样的几种出法：最小的那手说明“留着大的收回出牌权”，大的说明“没必要花掉”。
+ * 只补充理由，不改评分（剩下的拆法评分相同，原本只靠点数的微小差别区分，理由里看不出来）。
+ */
+function noteSmallestPeer(options: AdviceOption[], following: boolean) {
+  const plain = options.filter((o) => o.combo && !o.features!.isBomb && !o.features!.finishes);
+  const generic = (r: string) => r.startsWith('出完后还剩') || r === '出完后很快就能走完';
+  for (const o of plain) {
+    const c = o.combo!, f = o.features!;
+    const peers = plain.filter((x) => x !== o && x.combo!.type === c.type && x.combo!.cards.length === c.cards.length
+      && x.features!.handsLeft === f.handsLeft && x.features!.bombsLeft === f.bombsLeft);
+    const bigger = peers.filter((x) => x.combo!.value > c.value).sort((a, b) => a.combo!.value - b.combo!.value);
+    const smaller = peers.filter((x) => x.combo!.value < c.value).sort((a, b) => a.combo!.value - b.combo!.value);
+    const rest = o.reasons.filter((r) => !generic(r));
+    // 最小的那手：这就是主要理由，放最前；大的：放在规则理由（如拆牌型）后面
+    if (smaller.length) o.reasons = [...rest, `出${smaller[0].label}同样剩 ${f.handsLeft} 手，没必要花掉${o.label}`];
+    else if (bigger.length) o.reasons = [`${following ? '能压住的' : ''}${typeName(c.type)}里最小的一手（出完都剩 ${f.handsLeft} 手），留着${bigger.slice(-3).map((x) => x.label).join('、')}以后收回出牌权`, ...rest];
+  }
 }
 
 // ---------- 交给 Jev 的信息 ----------
@@ -404,6 +427,8 @@ const GOAL_CN = { first: '争上游（还没有人出完）', second: '对家已
 
 /** 托管一手牌的决策依据：局面、自己的手牌、三家的出牌情况和本阶段适用的规则 */
 export interface DecisionContext {
+  /** 牌力评估和打法（面板最上面） */
+  power?: { level: string; points: number; detail: string; role: string; why: string };
   stage: string;
   focus: string[];
   goal: string;
@@ -423,7 +448,16 @@ export function decisionContext(inp: AdviceInput, adv: Advice, chosen: AdviceOpt
   const split = bestSplit(hand, level, st);
   const sorted = [...hand].sort((a, b) => cardValue(b, level) - cardValue(a, level));
   const stage = STAGE_FOCUS[adv.stage ?? ''] ?? { name: adv.stage ?? '未知', focus: [] };
+  const pw = adv.power;
   return {
+    power: pw && {
+      level: { strong: '强', medium: '中等', weak: '弱' }[pw.strength],
+      points: pw.points,
+      detail: [`拆成 ${pw.hands} 手`, `炸弹 ${pw.bombs} 个（+${pw.bombs * 4}）`, `外面压不住的 ${pw.controls} 手（+${pw.controls}）`,
+        `要先拿到出牌权才能出的小牌 ${pw.lows} 手（-${pw.lows}）`].join('，'),
+      role: { attack: '抢头游（主攻）', support: '送对家（助攻）', undecided: '先看对家牌路（还没定）' }[pw.role],
+      why: pw.why,
+    },
     stage: stage.name,
     focus: stage.focus,
     goal: GOAL_CN[goalOf(seat, tracker)],

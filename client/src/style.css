@@ -253,6 +253,9 @@ html[data-skin="mint"] .egg-buddy { display: block; }
 .dp-body h4 { margin: 10px 0 4px; font-size: 13px; color: #ffe08a; }
 .dp-body ul { margin: 0; padding-left: 18px; }
 .dp-body b { color: #ffe08a; margin-right: 4px; }
+.dp-power { margin-bottom: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 224, 138, .1); border: 1px solid rgba(255, 224, 138, .25); }
+.dp-power em { font-style: normal; font-weight: 700; color: #fff; }
+.dp-why { margin-top: 2px; }
 .dp-pick { font-size: 15px; }
 .dp-pick b { color: #fff; font-size: 16px; }
 .dp-pick span { display: block; font-size: 12px; color: #b9c9bd; }

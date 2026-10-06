@@ -33,8 +33,26 @@ export interface BookInput {
   controlOf: (c: Combo) => Control;
 }
 
+/** 自己的牌力评估和由此决定的打法（主攻抢头游 / 助攻送对家） */
+export interface Power {
+  /** 教材经验分：炸弹 +4、外面压不住的一手 +1、要先拿到出牌权才能出的小牌 -1 */
+  points: number;
+  strength: 'strong' | 'medium' | 'weak';
+  bombs: number;
+  /** 外面压不住的手数 */
+  controls: number;
+  /** 难出的小牌手数 */
+  lows: number;
+  /** 不含炸弹的手数 */
+  hands: number;
+  role: 'attack' | 'support' | 'undecided';
+  /** 定这个打法的原因 */
+  why: string;
+}
+
 export interface BookState {
   stage: Stage;
+  power: Power;
   features: FeatureContext;
   /** 对手在本方领出的这些牌型上反复顺牌 */
   shedTypes: Set<ComboType>;
@@ -59,20 +77,27 @@ export function bookState(inp: BookInput): BookState {
   const stage: Stage = finished || [0, 1, 2, 3].some((s) => active(s) && counts[s] <= 10) ? 'endgame' : played <= 24 ? 'opening' : 'middle';
 
   // 教材经验计分：每把炸弹 +4、每手外面压不住的牌 +1、每手要先拿到出牌权才能出的小牌 -1
-  let points = 0;
+  let bombs = 0, controls = 0, lows = 0;
   for (const c of baseCombos) {
-    if (isBomb(c)) points += 4;
-    else if (controlOf(c) !== 'beatable') points += 1;
-    else if (low(c)) points -= 1;
+    if (isBomb(c)) bombs++;
+    else if (controlOf(c) !== 'beatable') controls++;
+    else if (low(c)) lows++;
   }
+  const points = bombs * 4 + controls - lows;
   const strength = points >= 12 ? 'strong' : points >= 6 ? 'medium' : 'weak';
   // 三家画像：对家像在主攻时，自己（不是强牌）转为助攻；对手像在主攻时，提前当作冲刺威胁
   const profiles = profileSeats(tracker, seat);
   const partnerAttacks = active(partner) && profiles[partner]?.role === 'attack';
-  let role: string = strength === 'strong' ? 'attack' : strength === 'weak' ? 'support' : 'undecided';
-  if (!active(partner)) role = 'attack';
-  else if (counts[partner] + 5 <= hand.length && counts[partner] <= 12) role = 'support';
-  else if (partnerAttacks && strength !== 'strong') role = 'support';
+  const strengthCn = { strong: '强', medium: '中等', weak: '弱' }[strength];
+  let role: Power['role'] = strength === 'strong' ? 'attack' : strength === 'weak' ? 'support' : 'undecided';
+  let why = strength === 'strong' ? '12 分以上，自己主攻抢头游'
+    : strength === 'weak' ? '不到 6 分，打助攻给对家送牌'
+    : '6–11 分，先看对家的牌路再定主攻还是助攻';
+  if (!active(partner)) { role = 'attack'; why = '对家已出完，只能自己冲'; }
+  else if (counts[partner] + 5 <= hand.length && counts[partner] <= 12) { role = 'support'; why = `对家只剩 ${counts[partner]} 张，比我少 ${hand.length - counts[partner]} 张，送对家先走`; }
+  else if (partnerAttacks && strength !== 'strong') { role = 'support'; why = `对家像在主攻，我牌力${strengthCn}，转为助攻`; }
+  const hands = baseCombos.filter((c) => !isBomb(c)).length;
+  const power: Power = { points, strength, bombs, controls, lows, hands, role, why };
 
   // 本方领出的牌型，对手跟着顺牌的次数
   const shed = new Map<ComboType, number>();
@@ -109,7 +134,7 @@ export function bookState(inp: BookInput): BookState {
     // M07：上家（对手）出的牌，他剩得不多，放行可能让他先走
     'state.upstream_can_feed_self': target !== null && targetSeat === prev && active(prev) && counts[prev] <= 8,
   };
-  return { stage, features, shedTypes, profiles };
+  return { stage, power, features, shedTypes, profiles };
 }
 
 export interface BookCandidate {

@@ -81,6 +81,8 @@ export interface DecisionLog {
   /** auto 托管 / timeout 超时代打 / hint 提示 / manual 自己出牌（记录当时的建议） */
   source: 'auto' | 'timeout' | 'hint' | 'manual';
   stage?: string;
+  /** 牌力和打法，如“弱 -3 分，送对家：…” */
+  power?: string;
   /** 采用的出法 */
   chosen: string;
   /** 决定方式：advisor 顾问首选 / mc 模拟后保留首选 / mc-override 模拟推翻首选 / jev */
@@ -100,6 +102,7 @@ export function decisionLog(adv: Advice, source: DecisionLog['source'], chosenId
   return {
     source,
     stage: adv.stage,
+    ...(adv.power ? { power: `${{ strong: '强', medium: '中等', weak: '弱' }[adv.power.strength]} ${adv.power.points} 分，${{ attack: '主攻', support: '助攻', undecided: '未定' }[adv.power.role]}：${adv.power.why}` } : {}),
     chosen: adv.options[chosenIdx]?.label ?? '不出',
     method,
     ...(mc ? { mc: { mode: mc.mode, samples: mc.samples, gain: Number(mc.gain.toFixed(3)) } } : {}),

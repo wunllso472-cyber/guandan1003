@@ -1,4 +1,4 @@
-// 托管决策面板：托管时显示每手牌的决策依据（阶段与要点、三家出牌、自己的手牌、命中的规则、候选对比）。
+// 托管决策面板：托管时显示每手牌的决策依据（最上面是牌力评估和打法，然后是阶段与要点、三家出牌、自己的手牌、命中的规则、候选对比）。
 // 用 DOM 浮层而不是画布文字：内容多，需要滚动和换行。
 import type { DecisionLog } from '@shared/autoplay';
 
@@ -77,6 +77,11 @@ export class DecisionPanel {
     const c = d.ctx;
     const mc = d.mc ? `（${d.mc.mode === 'full' ? '模拟到整局结束' : '模拟到本轮结束'}，${d.mc.samples} 局${d.method === 'mc-override' ? `，多赢 ${d.mc.gain} 级` : ''}）` : '';
     const parts: string[] = [];
+    const pw = c?.power;
+    if (pw) {
+      parts.push(`<div class="dp-power"><div><b>牌力</b>${esc(pw.level)}（${pw.points} 分）　<b>打法</b><em>${esc(pw.role)}</em></div>`
+        + `<div class="dp-why">${esc(pw.why)}</div><div class="dp-plan">${esc(pw.detail)}</div></div>`);
+    }
     parts.push(`<div class="dp-pick">出：<b>${esc(d.chosen)}</b><span>${esc(METHOD_CN[d.method] + mc)}</span></div>`);
     if (c) {
       parts.push(`<div class="dp-row"><b>阶段</b>${esc(c.stage)}　<b>目标</b>${esc(c.goal)}</div>`);

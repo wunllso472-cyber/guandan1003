@@ -208,3 +208,20 @@ describe('提示推荐', () => {
     expect(JSON.stringify(ctx).length).toBeLessThan(20000);
   });
 });
+
+describe('决策理由与牌力评估', () => {
+  it('同样剩几手时用最小的对子压，理由里写明留着大对子；并给出牌力和打法', () => {
+    const used = new Set<number>();
+    const tr = setup(2);
+    const played = ids('S6 C6', used);
+    const target = parseCombos(played, 2)[0];
+    tr.apply({ type: 'play', seat: 3, combo: target, left: 25 });
+    const hand = ids('SA DA HK CK SQ SQ HQ DJ H10 C10 D10 S9 C9 H8 C8 C8 S7 C7 D7 H6 D6 S5 C5 D4 S3 C3 C3', used);
+    const adv = advise({ seat: 0, hand, level: 2, target, targetSeat: 3, counts: [27, 27, 27, 25], tracker: tr });
+    expect(top(adv).label).toBe('对10');
+    expect(top(adv).reasons[0]).toContain('留着对K、对A');
+    expect(adv.options.find((o) => o.label === '对A')!.reasons.join()).toContain('没必要花掉对A');
+    // 没有炸弹、小牌多：牌力弱，打助攻
+    expect(adv.power).toMatchObject({ strength: 'weak', role: 'support', bombs: 0 });
+  });
+});
