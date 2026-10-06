@@ -836,7 +836,7 @@ export class TableScene extends Container {
     const myTeam = teamOf(me);
     const win = r.winTeam === myTeam;
     const title = r.gameOver ? (win ? '恭喜过 A，赢得整盘！' : '对方过 A，本盘结束') : win ? '本局胜利' : '本局失利';
-    const box = this.panel(620, 470, title);
+    const box = this.panel(620, 500, title);
     const places = ['头游', '二游', '三游', '末游'];
     r.order.forEach((seat, i) => {
       const y = -130 + i * 50;
@@ -847,15 +847,16 @@ export class TableScene extends Container {
     });
     const up = r.up;
     const lvl = (t: number) => `${rankName(r.levelsBefore[t])} → ${rankName(r.levelsAfter[t])}`;
-    this.addLabel(box, `我方 ${lvl(myTeam)}　　对方 ${lvl(1 - myTeam)}`, 0, 80, 24, 0x5a2e10);
-    this.addLabel(box, r.gameOver ? '' : `${r.winTeam === myTeam ? '我方' : '对方'}升 ${up} 级`, 0, 116, 22, 0x9a6b2a);
-    if (r.note) this.addLabel(box, r.note, 0, 146, 20, 0xc0392b);
+    this.addLabel(box, `我方 ${lvl(myTeam)}　　对方 ${lvl(1 - myTeam)}`, 0, 70, 24, 0x5a2e10);
+    this.addLabel(box, r.gameOver ? '' : `${r.winTeam === myTeam ? '我方' : '对方'}升 ${up} 级`, 0, 106, 22, 0x9a6b2a);
+    if (r.note) this.addLabel(box, r.note, 0, 136, 20, 0xc0392b);
     const btn = new Button(r.gameOver ? '再来一盘' : '下一局', 'orange', 220, 64, () => {
       this.clearOverlay();
       if (r.gameOver && this.client.canRestart) this.client.restart(); else this.client.nextRound();
       if (!this.client.canRestart) this.toast('等待其他玩家…');
     });
-    btn.y = 196;
+    // 面板内框底边在 244，按钮（高 64）底边留出约 28 的空隙
+    btn.y = 184;
     box.addChild(btn);
   }
 
