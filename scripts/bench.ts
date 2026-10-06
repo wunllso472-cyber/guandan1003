@@ -5,6 +5,7 @@
 //         | mc（蒙特卡洛：顾问前 GD_MC_K 个候选各模拟 GD_MC_SAMPLES 种牌局，选团队结果最好的）
 //         | auto（托管：shared/autoplay.ts 的 smartPlay，每手模拟时间预算 GD_AUTO_BUDGET 毫秒，默认 300）
 //   例：npx tsx scripts/bench.ts advisor ai 2000
+//   策略名后加 ~old：该队出牌时关闭 shared/ai.ts 的 bombAlt（要出炸弹时不先找更便宜的牌），例：ai ai~old
 //
 // 每副牌两队交换座位各打一次（配对比较），抵消牌运差异。
 // GD_TRIBUTE=1：每局按随机的“上一局名次”先进贡/还贡（或抗贡）再开打；GD_NO_LACKS=1：mc 推测手牌时不用进贡/抗贡得到的硬约束。
@@ -12,7 +13,7 @@
 import { GuandanGame, teamOf, partnerOf } from '../shared/game';
 import { shuffle } from '../shared/cards';
 import { smartReturn } from '../shared/tribute';
-import { aiPlay } from '../shared/ai';
+import { aiPlay, bombAlt } from '../shared/ai';
 import { advise, buildJevContext } from '../shared/advisor';
 import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
@@ -53,6 +54,8 @@ if (process.env.GD_END_MARGIN) MC_END.margin = Number(process.env.GD_END_MARGIN)
 if (process.env.GD_MID_MARGIN) MID_CFG.margin = Number(process.env.GD_MID_MARGIN);
 if (process.env.GD_END_SAMPLES) MC_END.samples = Number(process.env.GD_END_SAMPLES);
 if (process.env.GD_MID_SAMPLES) MID_CFG.samples = Number(process.env.GD_MID_SAMPLES);
+/** GD_AI_TAKE=N：对手剩 N 张以内时用外面压不住的牌收回出牌权（shared/ai.ts 的 aiTake） */
+if (process.env.GD_AI_TAKE) { const { aiTake } = await import('../shared/ai'); aiTake.cards = Number(process.env.GD_AI_TAKE); }
 if (process.env.GD_DEPTH) shallowDepth.tricks = Number(process.env.GD_DEPTH);
 if (process.env.GD_STAGE_CARDS) mcStage.maxCards = Number(process.env.GD_STAGE_CARDS);
 /** 中盘局面评分：默认第二版（加入控制牌特征）；GD_EVAL=v1 用第一版 */
@@ -133,7 +136,7 @@ export interface BenchResult {
   doubleLoss: number; // 被双下率
 }
 
-export async function bench(a: Strategy, b: Strategy, n: number, seed = 200000, parallel = 1, onProgress?: (done: number) => void): Promise<BenchResult> {
+export async function bench(a: string, b: string, n: number, seed = 200000, parallel = 1, onProgress?: (done: number) => void): Promise<BenchResult> {
   const nets: number[] = [];
   let next = 0;
   async function playOne(i: number) {
@@ -151,7 +154,10 @@ export async function bench(a: Strategy, b: Strategy, n: number, seed = 200000, 
     let guard = 0;
     while (g.phase === 'play' && guard++ < 3000) {
       const s = g.turn;
-      const c = await choose(teamOf(s) === aTeam ? a : b, { seat: s, g, tracker: trackers[s] });
+      const name = teamOf(s) === aTeam ? a : b;
+      const old = name.endsWith('~old');
+      bombAlt.enabled = !old;
+      const c = await choose((old ? name.slice(0, -4) : name) as Strategy, { seat: s, g, tracker: trackers[s] }).finally(() => { bombAlt.enabled = true; });
       const err = c ? g.play(s, c.cards, c) : g.pass(s);
       if (err) throw new Error(err);
     }
@@ -215,7 +221,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('scripts/bench.ts')) {
   }
   const usesJev = (x: string) => x === 'jev' || (x === 'mcjev' && !NO_JEV);
   const parallel = Number(process.env.GD_PARALLEL ?? (usesJev(a) || usesJev(b) ? 4 : 1));
-  const r = await bench(a as Strategy, b as Strategy, Number(n), Number(seed), parallel);
+  const r = await bench(a, b, Number(n), Number(seed), parallel);
   console.log(formatResult(a, b, r));
   if (a === 'mcjev' || b === 'mcjev') {
     const j = jevStats;

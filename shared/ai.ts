@@ -370,6 +370,19 @@ export function followOptions(ctx: AIContext): Scored[] {
   return scored.sort((a, b) => a.delta - b.delta);
 }
 
+/**
+ * 跟对手的牌时，对手剩几张以内就用外面压不住的牌收回出牌权（0 表示不启用；只在传入记牌信息 unseen 时生效，
+ * 即困难电脑/托管/提示，原电脑和模拟推演不受影响）。评估用可调。
+ */
+export const aiTake = { cards: 0 };
+
+/**
+ * 决定出炸弹时，先找比炸弹代价低、不拆连牌的非炸弹出法（如用王跟单张）；enabled=false 恢复旧逻辑，评估用。
+ * 评估（scripts/bench.ts，对旧逻辑配对对打）：电脑每局净升级 +0.079 ±0.048（2000 局）、+0.119 ±0.033（4000 局，另一组牌）；
+ * 顾问 +0.137 ±0.070（1000 局）。
+ */
+export const bombAlt = { enabled: true };
+
 export function aiPlay(ctx: AIContext): Combo | null {
   const c = decide(ctx);
   return c ? preferLooseCards(c, ctx.hand, ctx.level) : null;
@@ -391,6 +404,11 @@ function decide(ctx: AIContext): Combo | null {
   // 不急的时候不为了跟牌拆散已有的牌型（例如从顺子里拆一张去跟单张）
   const pick = nonBomb.find((o) => o.delta <= (urgent ? 3 : -0.35) && (urgent || !o.breaksChain));
   if (pick) return pick.combo;
+  // 对手剩的牌不多时，用外面同类压不住的牌（如对手出小王、自己有大王）收回出牌权，不让他顺下去
+  if (aiTake.cards > 0 && ctx.unseen && oppLeft <= aiTake.cards) {
+    const ctl = nonBomb.find((o) => !o.breaksChain && !sameTypeBeatable(o.combo, ctx.unseen!, ctx.level));
+    if (ctl) return ctl.combo;
+  }
 
   const bombs = opts.filter((o) => isBomb(o.combo));
   if (!bombs.length) return null;
@@ -398,7 +416,9 @@ function decide(ctx: AIContext): Combo | null {
   const bigTarget = !isBomb(target) && target.value >= 14;
   if (oppLeft <= 8 || restCombos <= 2 || (bigTarget && hand.length <= 15)) {
     if (isBomb(target) && oppLeft > 8 && restCombos > 2) return null;
-    return bombs[0].combo;
+    // 能用更便宜的牌（如王）压住就不动炸弹
+    const cheaper = bombAlt.enabled ? nonBomb.find((o) => !o.breaksChain && o.delta < bombs[0].delta) : undefined;
+    return (cheaper ?? bombs[0]).combo;
   }
   return null;
 }

@@ -68,3 +68,14 @@ describe('出单张不拆顺子', () => {
     expect(fromStraight).toBe(false);
   });
 });
+
+describe('能用王压就不动炸弹', () => {
+  it('上家出级牌单张，手里有小王时出小王而不是炸弹', () => {
+    // 托管实战的牌：顺子 10-A、4 炸(9)、对 J、对 Q、单 3、小王，共 15 张
+    const hand = ids('J16 CA SK SQ HQ DQ SJ SJ DJ C10 S9 S9 C9 C9 H3');
+    const target = resolvePlay(ids('S2'), 2, null)[0];
+    const c = aiPlay({ seat: 0, hand, level: 2, target, targetSeat: 3, handCounts: [hand.length, 23, 10, 12] });
+    expect(c?.type).toBe('single');
+    expect(card(c!.cards[0]).rank).toBe(16);
+  });
+});
