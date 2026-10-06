@@ -39,7 +39,8 @@ function loadSettings(): AudioSettings {
 
 export type Sfx =
   | 'click' | 'deal' | 'play' | 'pass' | 'select' | 'tick' | 'warn' | 'bomb' | 'bigbomb' | 'shine'
-  | 'win' | 'lose' | 'tribute' | 'chat' | 'flower' | 'heart' | 'beer' | 'egg' | 'boom' | 'turn';
+  | 'win' | 'lose' | 'tribute' | 'chat' | 'flower' | 'heart' | 'beer' | 'egg' | 'boom' | 'turn'
+  | 'whoosh' | 'fuse' | 'thump' | 'sparkle';
 
 class SoundEngine {
   settings = loadSettings();
@@ -267,6 +268,13 @@ class SoundEngine {
         for (const f of [2600, 3900, 5200]) this.tone(f, 0.35, 'sine', 0.08, t);
         this.noiseHit(t + 0.05, 0.3, 6000, 0.08, 'highpass');
         break;
+      // 道具：扔出去的呼啸、炸弹引线嗞嗞声、心跳、闪光
+      case 'whoosh': this.sweep(t, 0.38, 500, 2600, 0.16); break;
+      case 'fuse':
+        for (let i = 0; i < 12; i++) this.noiseHit(t + i * 0.06 + Math.random() * 0.03, 0.025, 5500 + Math.random() * 2500, 0.1, 'highpass');
+        break;
+      case 'thump': this.tone(90, 0.12, 'sine', 0.45, t, 55); this.tone(80, 0.14, 'sine', 0.35, t + 0.2, 50); break;
+      case 'sparkle': this.arp([2093, 2637, 3136, 4186], 0.045, 'sine', 0.07, t); break;
       case 'egg':
         this.noiseHit(t, 0.06, 1800, 0.4, 'bandpass');
         this.noiseHit(t + 0.05, 0.25, 600, 0.35, 'lowpass');
@@ -307,6 +315,22 @@ class SoundEngine {
     f.frequency.value = freq;
     const g = ctx.createGain();
     this.env(g, t, vol, dur, 0.002);
+    src.connect(f).connect(g).connect(this.sfxBus);
+    src.start(t, Math.random() * 0.5);
+    src.stop(t + dur + 0.05);
+  }
+
+  /** 带通噪声扫频（呼啸声） */
+  private sweep(t: number, dur: number, f0: number, f1: number, vol: number) {
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass'; f.Q.value = 2.5;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain();
+    this.env(g, t, vol, dur, dur * 0.6);
     src.connect(f).connect(g).connect(this.sfxBus);
     src.start(t, Math.random() * 0.5);
     src.stop(t + dur + 0.05);

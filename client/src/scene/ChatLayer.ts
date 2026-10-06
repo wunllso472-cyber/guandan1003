@@ -1,5 +1,6 @@
-// 聊天互动：聊天面板（快捷语/表情）、道具选择、气泡、道具飞行动画。
+// 聊天互动：聊天面板（快捷语/表情）、道具选择、气泡；道具飞行和命中特效见 PropFx.ts。
 import { Container, Graphics, Sprite, Text, Point } from 'pixi.js';
+import { PropFx } from './PropFx';
 import { PHRASES, EMOJI_NAMES, PROPS, type ChatMsg } from '@shared/chat';
 import { FONT_UI } from '../gfx/textures';
 import { emojiTexture, propTexture } from '../gfx/emoji';
@@ -22,6 +23,8 @@ export interface ChatHost {
 export class ChatLayer extends Container {
   private panel = new Container();
   private picker = new Container();
+  /** 道具特效（在气泡之上、面板之下） */
+  private props: PropFx;
   private bubbles = new Map<number, Container>();
   private tab: 'phrase' | 'dialect' | 'emoji' = 'phrase';
   private DW = 1280;
@@ -29,7 +32,8 @@ export class ChatLayer extends Container {
 
   constructor(private host: ChatHost) {
     super();
-    this.addChild(this.panel, this.picker);
+    this.props = new PropFx({ seatPos: (s) => host.seatPos(s), shakeHud: (s) => host.shakeHud(s), shake: (st, ms) => host.fx.shake(st, ms) });
+    this.addChild(this.props, this.panel, this.picker);
     this.panel.visible = false;
     this.picker.visible = false;
     // 面板内的按下事件不能冒泡到牌桌：牌桌按下时会关闭面板，导致点击（按下+抬起）无法完成
@@ -185,7 +189,7 @@ export class ChatLayer extends Container {
       sound.play('chat');
       this.bubble(m.seat, null, m.id);
     } else if (m.to !== undefined) {
-      void this.throwProp(m.seat, m.to, PROPS[m.id].key);
+      void this.props.play(m.seat, m.to, PROPS[m.id].key);
     }
   }
 
@@ -235,98 +239,5 @@ export class ChatLayer extends Container {
       .then(() => wait(3000))
       .then(() => { if (!b.destroyed) return tween(b, { alpha: 0 }, 300); })
       .then(() => { if (!b.destroyed) b.destroy({ children: true }); if (this.bubbles.get(seat) === b) this.bubbles.delete(seat); });
-  }
-
-  /** 道具沿弧线飞向目标，到达后播放效果 */
-  private async throwProp(from: number, to: number, key: string) {
-    const a = this.host.seatPos(from), b = this.host.seatPos(to);
-    const s = new Sprite(propTexture(key));
-    s.anchor.set(0.5);
-    s.width = s.height = 64;
-    s.position.copyFrom(a);
-    this.addChild(s);
-    const ctrl = new Point((a.x + b.x) / 2, Math.min(a.y, b.y) - 160);
-    const state = { t: 0 };
-    const spin = key === 'egg' || key === 'bomb' ? 10 : key === 'beer' ? 0 : 2;
-    const fx = this.host.fx;
-    await new Promise<void>((resolve) => {
-      const dur = 650, t0 = performance.now();
-      const step = () => {
-        if (s.destroyed) { resolve(); return; }
-        state.t = Math.min(1, (performance.now() - t0) / dur);
-        const t = state.t, u = 1 - t;
-        s.x = u * u * a.x + 2 * u * t * ctrl.x + t * t * b.x;
-        s.y = u * u * a.y + 2 * u * t * ctrl.y + t * t * b.y;
-        s.rotation = spin * t;
-        if (key === 'bomb' && Math.random() < 0.6) {
-          fx.particles.burst({ kind: 'glow', x: s.x + 18, y: s.y - 24, count: 1, speed: [20, 60], life: [200, 350], scale: [0.15, 0.25], colors: [0xffd34d, 0xff8a2a], blend: 'add' });
-        }
-        if (t < 1) requestAnimationFrame(step); else resolve();
-      };
-      step();
-    });
-    if (s.destroyed) return;
-    try {
-      await this.propEffect(s, key, b, to);
-    } catch {
-      // 动画过程中离开牌桌，对象已被销毁
-    }
-    if (!s.destroyed) s.destroy();
-  }
-
-  private async propEffect(s: Sprite, key: string, b: Point, to: number) {
-    const fx = this.host.fx;
-    switch (key) {
-      case 'flower':
-        sound.play('flower');
-        fx.particles.burst({ kind: 'petal', x: b.x, y: b.y, count: 22, speed: [80, 260], life: [900, 1500], scale: [0.6, 1.1], gravity: 260, spin: 8 });
-        await tween(s, { scale: s.scale.x * 1.4 }, 220, { ease: ease.outBack });
-        await tween(s, { alpha: 0 }, 500, { delay: 500 });
-        break;
-      case 'heart':
-        sound.play('heart');
-        for (let i = 0; i < 3; i++) {
-          void tween(s, { scale: s.scale.x * 1.25 }, 120).then(() => tween(s, { scale: s.scale.x / 1.25 }, 120));
-          await wait(260);
-        }
-        fx.particles.burst({ kind: 'heart', x: b.x, y: b.y, count: 10, speed: [40, 120], angle: [Math.PI * 1.15, Math.PI * 1.85], life: [900, 1300], scale: [0.4, 0.7], gravity: -60 });
-        await tween(s, { alpha: 0 }, 300);
-        break;
-      case 'beer': {
-        // 两只杯子碰杯
-        const s2 = new Sprite(propTexture('beer'));
-        s2.anchor.set(0.5);
-        s2.width = s2.height = 64;
-        s2.scale.x *= -1;
-        s2.position.set(b.x + 70, b.y);
-        s2.alpha = 0;
-        this.addChild(s2);
-        s.x = b.x - 70;
-        await Promise.all([tween(s, { x: b.x - 26, rotation: 0.3 }, 200), tween(s2, { x: b.x + 26, alpha: 1, rotation: -0.3 }, 200)]);
-        sound.play('beer');
-        fx.particles.burst({ kind: 'foam', x: b.x, y: b.y - 30, count: 14, speed: [60, 180], angle: [Math.PI * 1.1, Math.PI * 1.9], life: [500, 800], scale: [0.4, 0.8], gravity: 400 });
-        await wait(600);
-        await Promise.all([tween(s, { alpha: 0 }, 300), tween(s2, { alpha: 0 }, 300)]);
-        s2.destroy();
-        break;
-      }
-      case 'egg':
-        sound.play('egg');
-        s.texture = propTexture('splat');
-        s.rotation = Math.random() * 0.6 - 0.3;
-        s.scale.set(s.scale.x * 1.5);
-        this.host.shakeHud(to);
-        await tween(s, { y: s.y + 14 }, 1200, { ease: ease.linear });
-        await tween(s, { alpha: 0 }, 400);
-        break;
-      case 'bomb':
-        sound.play('boom');
-        s.visible = false;
-        fx.particles.burst({ kind: 'glow', x: b.x, y: b.y, count: 22, speed: [100, 300], life: [300, 600], scale: [0.3, 0.6], colors: [0xffe066, 0xff8a2a, 0xff4a1a], blend: 'add' });
-        fx.particles.burst({ kind: 'smoke', x: b.x, y: b.y, count: 8, speed: [30, 90], life: [800, 1200], scale: [0.6, 1], grow: 0.8 });
-        this.host.shakeHud(to);
-        await wait(300);
-        break;
-    }
   }
 }

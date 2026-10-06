@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>道具特效预览</title>
+  <style>
+    body { margin: 0; background: #0b3d23; font: 14px sans-serif; color: #fff; overflow: hidden; }
+    #bar { position: fixed; left: 8px; top: 8px; z-index: 2; display: flex; gap: 6px; }
+    #bar button { padding: 6px 12px; border: 0; border-radius: 6px; background: #f0a020; color: #fff; font-weight: 700; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <!-- 开发用：预览互动道具特效（不参与构建）。window.fx(key, from, to) 播放，window.freezeAt(ms) 在指定时刻冻结动画便于截图 -->
+  <div id="bar"></div>
+  <script type="module" src="/src/fxlab.ts"></script>
+</body>
+</html>

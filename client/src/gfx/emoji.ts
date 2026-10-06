@@ -1,5 +1,8 @@
-// 表情、道具、粒子贴图（Canvas 程序绘制）。
+// 表情、粒子贴图（Canvas 程序绘制）；道具和道具特效的贴图在 propArt.ts。
 import { Texture } from 'pixi.js';
+import { PROP_PARTICLES } from './propArt';
+
+export { propTexture } from './propArt';
 
 const RES = 2;
 
@@ -170,104 +173,10 @@ export function emojiTexture(i: number): Texture {
   return emojiTex[i];
 }
 
-// ---------- 道具（96×96） ----------
-
-function drawRose(g: CanvasRenderingContext2D) {
-  g.strokeStyle = '#2f8a3a'; g.lineWidth = 5;
-  g.beginPath(); g.moveTo(48, 50); g.quadraticCurveTo(44, 72, 50, 92); g.stroke();
-  g.fillStyle = '#3fae4a';
-  g.beginPath(); g.ellipse(36, 72, 12, 6, -0.6, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.ellipse(60, 66, 12, 6, 0.6, 0, Math.PI * 2); g.fill();
-  const petals: [number, number, number, string][] = [[48, 34, 24, '#c4102c'], [38, 30, 15, '#e12a45'], [58, 30, 15, '#e12a45'], [48, 26, 14, '#f0465f'], [48, 34, 9, '#a50c24']];
-  for (const [x, y, r, c] of petals) {
-    g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-  }
-  g.strokeStyle = 'rgba(120,0,20,0.6)'; g.lineWidth = 2;
-  g.beginPath(); g.arc(48, 30, 10, 0.3, 3.6); g.stroke();
-  g.beginPath(); g.arc(48, 32, 5, 2, 5.6); g.stroke();
-}
-
-function drawHeart(g: CanvasRenderingContext2D) {
-  const grad = g.createLinearGradient(0, 14, 0, 86);
-  grad.addColorStop(0, '#ff7a93'); grad.addColorStop(1, '#d6153d');
-  g.fillStyle = grad;
-  heartPath(g, 48, 52, 92); g.fill();
-  g.strokeStyle = '#fff3'; g.lineWidth = 3; g.stroke();
-  g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.ellipse(30, 34, 9, 6, -0.6, 0, Math.PI * 2); g.fill();
-}
-
-function drawBeer(g: CanvasRenderingContext2D) {
-  g.strokeStyle = '#d9d9d9'; g.lineWidth = 7;
-  g.beginPath(); rr(g, 64, 38, 20, 30, 8); g.stroke();
-  const grad = g.createLinearGradient(20, 0, 66, 0);
-  grad.addColorStop(0, '#f5b62a'); grad.addColorStop(0.5, '#ffd45a'); grad.addColorStop(1, '#e09a14');
-  g.fillStyle = grad; g.beginPath(); rr(g, 20, 30, 46, 58, 6); g.fill();
-  g.strokeStyle = 'rgba(255,255,255,0.6)'; g.lineWidth = 2; g.stroke();
-  g.fillStyle = 'rgba(255,255,255,0.5)';
-  for (const [x, y] of [[32, 70], [44, 58], [52, 76], [36, 50]]) { g.beginPath(); g.arc(x, y, 2.5, 0, 7); g.fill(); }
-  g.fillStyle = '#fffaf0';
-  for (const [x, y, r] of [[24, 28, 10], [38, 22, 12], [54, 24, 11], [64, 30, 8], [30, 34, 8], [50, 34, 9]]) { g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
-}
-
-function drawEgg(g: CanvasRenderingContext2D) {
-  const grad = g.createRadialGradient(40, 36, 4, 48, 50, 40);
-  grad.addColorStop(0, '#ffffff'); grad.addColorStop(1, '#e9dcc4');
-  g.fillStyle = grad;
-  g.beginPath(); g.moveTo(48, 12);
-  g.bezierCurveTo(74, 12, 80, 60, 74, 72); g.bezierCurveTo(66, 92, 30, 92, 22, 72); g.bezierCurveTo(16, 60, 22, 12, 48, 12);
-  g.fill();
-  g.strokeStyle = '#c9b38c'; g.lineWidth = 2; g.stroke();
-}
-
-function drawSplat(g: CanvasRenderingContext2D) {
-  g.fillStyle = 'rgba(255,255,250,0.92)';
-  g.beginPath();
-  for (let i = 0; i <= 14; i++) {
-    const a = (i / 14) * Math.PI * 2;
-    const r = 34 + (i % 2 ? 10 : -4) + Math.sin(i * 3) * 4;
-    const x = 48 + Math.cos(a) * r, y = 48 + Math.sin(a) * r * 0.85;
-    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
-  }
-  g.closePath(); g.fill();
-  const yg = g.createRadialGradient(44, 44, 2, 48, 48, 18);
-  yg.addColorStop(0, '#ffe066'); yg.addColorStop(1, '#f59e0b');
-  g.fillStyle = yg; g.beginPath(); g.arc(48, 50, 17, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#e9dcc4';
-  for (const [x, y, a] of [[14, 30, 0.4], [80, 70, -0.6], [76, 22, 1.2]]) {
-    g.save(); g.translate(x, y); g.rotate(a); g.beginPath(); g.moveTo(-8, 0); g.lineTo(0, -6); g.lineTo(8, 0); g.lineTo(3, 6); g.closePath(); g.fill(); g.restore();
-  }
-}
-
-function drawBomb(g: CanvasRenderingContext2D) {
-  const grad = g.createRadialGradient(38, 46, 4, 46, 56, 34);
-  grad.addColorStop(0, '#6b6b7b'); grad.addColorStop(1, '#141418');
-  g.fillStyle = grad; g.beginPath(); g.arc(46, 56, 30, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#2a2a33'; g.fillRect(52, 20, 16, 14);
-  g.strokeStyle = '#a07a3a'; g.lineWidth = 4;
-  g.beginPath(); g.moveTo(62, 20); g.quadraticCurveTo(70, 6, 82, 10); g.stroke();
-  g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(82, 10, 6, 0, 7); g.fill();
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(82, 10, 2.5, 0, 7); g.fill();
-  g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.ellipse(34, 44, 9, 6, -0.6, 0, Math.PI * 2); g.fill();
-}
-
-const PROP_DRAW: Record<string, (g: CanvasRenderingContext2D) => void> = {
-  flower: drawRose, heart: drawHeart, beer: drawBeer, egg: drawEgg, splat: drawSplat, bomb: drawBomb,
-};
-const propCache = new Map<string, Texture>();
-export function propTexture(key: string): Texture {
-  let t = propCache.get(key);
-  if (!t) {
-    const { c, g } = canvas(96);
-    PROP_DRAW[key](g);
-    t = Texture.from(c);
-    propCache.set(key, t);
-  }
-  return t;
-}
-
 // ---------- 粒子 ----------
 
-const PARTICLES: Record<string, () => HTMLCanvasElement> = {
+const PARTICLES = {
+  ...PROP_PARTICLES,
   glow: () => {
     const { c, g } = canvas(64);
     const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -287,18 +196,6 @@ const PARTICLES: Record<string, () => HTMLCanvasElement> = {
     g.closePath(); g.fill();
     return c;
   },
-  petal: () => {
-    const { c, g } = canvas(32);
-    g.fillStyle = '#ff4d6d';
-    g.beginPath(); g.ellipse(16, 16, 12, 7, 0.5, 0, Math.PI * 2); g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.ellipse(13, 13, 5, 2.5, 0.5, 0, Math.PI * 2); g.fill();
-    return c;
-  },
-  heart: () => {
-    const { c, g } = canvas(40);
-    g.fillStyle = '#ff4d6d'; heartPath(g, 20, 22, 38); g.fill();
-    return c;
-  },
   smoke: () => {
     const { c, g } = canvas(64);
     const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -312,8 +209,11 @@ const PARTICLES: Record<string, () => HTMLCanvasElement> = {
     return c;
   },
   foam: () => {
+    // 奶泡：中心亮、边缘柔和，带一点米黄的暗部
     const { c, g } = canvas(24);
-    g.fillStyle = '#fffaf0'; g.beginPath(); g.arc(12, 12, 10, 0, 7); g.fill();
+    const gr = g.createRadialGradient(9, 9, 1, 12, 12, 11);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.6, 'rgba(255,248,228,0.95)'); gr.addColorStop(0.85, 'rgba(236,218,178,0.8)'); gr.addColorStop(1, 'rgba(236,218,178,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(12, 12, 11, 0, 7); g.fill();
     return c;
   },
 };

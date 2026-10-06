@@ -86,3 +86,19 @@ export function killTweens(target: any) {
 }
 
 export const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * 逐帧动画：dur 毫秒内每帧调用 fn(进度 0..1, 已过毫秒)；alive() 返回 false（如对象已销毁）时提前结束。
+ */
+export function frames(dur: number, fn: (t: number, ms: number) => void, alive: () => boolean = () => true): Promise<void> {
+  return new Promise((resolve) => {
+    let ms = 0;
+    const step = (tk: Ticker) => {
+      if (!alive()) { Ticker.shared.remove(step); resolve(); return; }
+      ms = Math.min(dur, ms + tk.deltaMS);
+      fn(ms / dur, ms);
+      if (ms >= dur) { Ticker.shared.remove(step); resolve(); }
+    };
+    Ticker.shared.add(step);
+  });
+}
