@@ -279,8 +279,119 @@ function drawFist(g: CanvasRenderingContext2D) {
   shine(g, 50, 42, 12, 6, -0.3, 0.6);
 }
 
+const GOLD: [number, string][] = [[0, '#fff6c4'], [0.45, '#ffcf33'], [1, '#d97a00']];
+
+/** 金色掌印（掌心朝外，手指向上），带一圈金光 */
+function drawPalm(g: CanvasRenderingContext2D) {
+  g.fillStyle = radial(g, 64, 66, 10, 64, 66, 64, [[0, 'rgba(255,220,90,0.55)'], [1, 'rgba(255,200,60,0)']]);
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = radial(g, 58, 60, 6, 64, 70, 60, GOLD);
+  g.strokeStyle = '#8a4b00'; g.lineWidth = 2.5;
+  // 四指
+  for (const [x, top] of [[37, 22], [51, 12], [65, 14], [79, 26]]) {
+    g.beginPath(); rr(g, x, top, 13, 64 - top + 6, 6.5); g.fill(); g.stroke();
+  }
+  // 大拇指（斜向左上）
+  g.save(); g.translate(36, 82); g.rotate(-0.85);
+  g.beginPath(); rr(g, -7, -34, 14, 40, 7); g.fill(); g.stroke();
+  g.restore();
+  // 手掌
+  g.beginPath(); rr(g, 34, 58, 60, 56, 20); g.fill(); g.stroke();
+  // 掌纹
+  g.strokeStyle = 'rgba(140,70,0,0.55)'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(44, 74); g.quadraticCurveTo(64, 70, 86, 78); g.stroke();
+  g.beginPath(); g.moveTo(46, 90); g.quadraticCurveTo(60, 84, 74, 104); g.stroke();
+  shine(g, 52, 72, 12, 7, -0.4, 0.7);
+}
+
+/** 龙头（侧视，朝右） */
+function drawDragonHead(g: CanvasRenderingContext2D) {
+  const INK = '#6b2a00';
+  // 鬃毛：红色火焰状
+  g.fillStyle = linear(g, 0, 20, 0, 110, [[0, '#ff6a3a'], [1, '#c4161c']]);
+  g.beginPath(); g.moveTo(40, 40);
+  for (const [x, y] of [[18, 30], [30, 50], [6, 52], [26, 66], [4, 78], [28, 82], [12, 100], [40, 92]]) g.lineTo(x, y);
+  g.closePath(); g.fill();
+  // 角
+  g.strokeStyle = '#f7e6b5'; g.lineWidth = 6;
+  g.beginPath(); g.moveTo(58, 42); g.quadraticCurveTo(40, 24, 18, 14); g.stroke();
+  g.beginPath(); g.moveTo(40, 26); g.lineTo(34, 10); g.stroke();
+  g.strokeStyle = 'rgba(120,80,20,0.6)'; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(58, 42); g.quadraticCurveTo(40, 24, 18, 14); g.stroke();
+  // 头
+  g.fillStyle = linear(g, 0, 36, 0, 96, GOLD);
+  g.beginPath();
+  g.moveTo(32, 74); g.bezierCurveTo(32, 50, 50, 38, 70, 42);
+  g.bezierCurveTo(88, 44, 104, 50, 116, 58); g.quadraticCurveTo(122, 64, 114, 70);
+  g.lineTo(86, 72); g.lineTo(86, 78); g.lineTo(108, 86); g.quadraticCurveTo(104, 94, 90, 94);
+  g.bezierCurveTo(64, 96, 40, 94, 32, 74); g.closePath();
+  g.fill(); g.strokeStyle = INK; g.lineWidth = 2.5; g.stroke();
+  // 张开的嘴和牙
+  g.fillStyle = '#7a0010';
+  g.beginPath(); g.moveTo(86, 72); g.lineTo(114, 70); g.lineTo(108, 86); g.lineTo(86, 78); g.closePath(); g.fill();
+  g.fillStyle = '#ffffff';
+  for (const x of [92, 100, 108]) { g.beginPath(); g.moveTo(x, 71); g.lineTo(x + 3, 77); g.lineTo(x + 6, 70.6); g.fill(); }
+  for (const x of [90, 98]) { g.beginPath(); g.moveTo(x, 79); g.lineTo(x + 3, 73); g.lineTo(x + 6, 81); g.fill(); }
+  // 眼睛和怒眉
+  g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(74, 55, 8, 6, -0.2, 0, TAU); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 1.5; g.stroke();
+  g.fillStyle = '#d10000'; g.beginPath(); g.arc(76, 55, 3.8, 0, TAU); g.fill();
+  g.fillStyle = '#000'; g.beginPath(); g.ellipse(76.5, 55, 1.2, 3.2, 0, 0, TAU); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 3.5;
+  g.beginPath(); g.moveTo(64, 46); g.lineTo(86, 50); g.stroke();
+  // 鼻孔、脸颊鳞片
+  g.fillStyle = INK; g.beginPath(); g.ellipse(112, 60, 2.5, 1.6, 0.4, 0, TAU); g.fill();
+  g.strokeStyle = 'rgba(160,80,0,0.6)'; g.lineWidth = 1.5;
+  for (const [x, y] of [[48, 70], [58, 78], [46, 82], [60, 64]]) { g.beginPath(); g.arc(x, y, 5, 0.2, Math.PI - 0.2); g.stroke(); }
+  // 龙须
+  g.strokeStyle = '#ff9a2a'; g.lineWidth = 2.5;
+  g.beginPath(); g.moveTo(110, 66); g.bezierCurveTo(96, 100, 70, 106, 54, 120); g.stroke();
+  g.beginPath(); g.moveTo(104, 60); g.bezierCurveTo(90, 30, 110, 18, 96, 4); g.stroke();
+  shine(g, 66, 46, 12, 5, -0.2, 0.6);
+}
+
+/** 龙身一节：金色鳞片圆盘，背上一根红色背鳍（贴图朝右为前进方向，背鳍在上） */
+function drawDragonScale(g: CanvasRenderingContext2D) {
+  g.fillStyle = '#d4231c';
+  g.beginPath(); g.moveTo(50, 40); g.lineTo(64, 6); g.lineTo(78, 40); g.closePath(); g.fill();
+  g.fillStyle = radial(g, 56, 56, 4, 64, 66, 32, GOLD);
+  g.beginPath(); g.arc(64, 66, 30, 0, TAU); g.fill();
+  g.strokeStyle = '#8a4b00'; g.lineWidth = 2.5; g.stroke();
+  g.strokeStyle = 'rgba(150,70,0,0.55)'; g.lineWidth = 2;
+  for (const [x, y] of [[52, 60], [72, 60], [62, 76], [80, 76], [44, 76]]) { g.beginPath(); g.arc(x, y, 7, 0.15, Math.PI - 0.15); g.stroke(); }
+  // 肚皮
+  g.fillStyle = 'rgba(255,240,200,0.75)';
+  g.beginPath(); g.ellipse(64, 90, 18, 5, 0, 0, TAU); g.fill();
+  shine(g, 54, 52, 10, 6, -0.5, 0.75);
+}
+
+/** 牌桌（侧视）：木框绿呢桌面、两条腿，桌上散着两张牌 */
+function drawTable(g: CanvasRenderingContext2D) {
+  g.fillStyle = linear(g, 0, 40, 0, 120, [[0, '#b0703a'], [1, '#6a3a16']]);
+  g.strokeStyle = '#3a1e08'; g.lineWidth = 2.5;
+  for (const [x0, x1] of [[22, 16], [106, 112]]) {
+    g.beginPath(); g.moveTo(x0 - 6, 58); g.lineTo(x0 + 6, 58); g.lineTo(x1 + 5, 118); g.lineTo(x1 - 5, 118); g.closePath(); g.fill(); g.stroke();
+  }
+  // 桌面：绿呢 + 木边
+  g.fillStyle = linear(g, 0, 34, 0, 46, [[0, '#3fbf6a'], [1, '#1f7a3e']]);
+  g.beginPath(); rr(g, 8, 34, 112, 12, 4); g.fill(); g.stroke();
+  g.fillStyle = linear(g, 0, 44, 0, 62, [[0, '#d08a4a'], [1, '#7a4419']]);
+  g.beginPath(); rr(g, 4, 44, 120, 16, 5); g.fill(); g.stroke();
+  g.strokeStyle = 'rgba(60,25,5,0.4)'; g.lineWidth = 1.2;
+  for (const y of [49, 54]) { g.beginPath(); g.moveTo(10, y); g.bezierCurveTo(40, y - 2, 80, y + 2, 118, y); g.stroke(); }
+  // 桌上的牌
+  for (const [x, y, a, c] of [[42, 22, -0.25, '#d61f2c'], [74, 20, 0.2, '#1d1d1d']] as const) {
+    g.save(); g.translate(x, y); g.rotate(a);
+    g.fillStyle = '#fffdf7'; g.strokeStyle = '#999'; g.lineWidth = 1.2;
+    g.beginPath(); rr(g, -9, -12, 18, 24, 3); g.fill(); g.stroke();
+    g.fillStyle = c; g.beginPath(); g.arc(0, 0, 4, 0, TAU); g.fill();
+    g.restore();
+  }
+}
+
 const PROP_DRAW: Record<string, (g: CanvasRenderingContext2D) => void> = {
   flower: drawBouquet, heart: drawHeart, beer: drawBeer, egg: drawEgg, splat: drawSplat, bomb: drawBomb, soot: drawSoot, punch: drawFist,
+  dragon: drawPalm, dragonHead: drawDragonHead, dragonScale: drawDragonScale, flip: drawTable,
 };
 const propCache = new Map<string, Texture>();
 /** 道具贴图（128×128 逻辑尺寸） */
@@ -387,6 +498,23 @@ export const PROP_PARTICLES = {
     g.strokeStyle = '#b33a00'; g.lineWidth = 3; g.stroke();
     star(10, 22);
     g.fillStyle = '#ffffff'; g.fill();
+    return c;
+  },
+  /** 木屑（不上色） */
+  plank: () => {
+    const { c, g } = canvas(32);
+    g.fillStyle = linear(g, 0, 10, 0, 22, [[0, '#c98a4e'], [1, '#6a3a16']]);
+    g.beginPath(); g.moveTo(2, 14); g.lineTo(26, 9); g.lineTo(30, 13); g.lineTo(24, 19); g.lineTo(4, 21); g.closePath(); g.fill();
+    g.strokeStyle = '#3a1e08'; g.lineWidth = 1; g.stroke();
+    return c;
+  },
+  /** 小纸牌（不上色）：白底，一红一黑两个点 */
+  card: () => {
+    const { c, g } = canvas(24, 32);
+    g.fillStyle = '#fffdf7'; g.strokeStyle = '#8a8a8a'; g.lineWidth = 1;
+    g.beginPath(); rr(g, 2, 2, 20, 28, 3); g.fill(); g.stroke();
+    g.fillStyle = '#d61f2c'; g.beginPath(); g.arc(12, 12, 3.5, 0, TAU); g.fill();
+    g.fillStyle = '#1d1d1d'; g.beginPath(); g.arc(12, 21, 3.5, 0, TAU); g.fill();
     return c;
   },
   /** 爆炸碎屑（不上色） */

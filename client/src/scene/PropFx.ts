@@ -1,7 +1,9 @@
 // 互动道具特效：道具沿弧线飞向目标头像（飞行中放大、带拖尾），命中后按道具播放多段动画。
 // 鲜花：花束弹出 + 花瓣炸开 + 花瓣雨；爱心：两次心跳后炸成满天小爱心；干杯：两只酒杯蓄力碰杯、泡沫飞溅；
 // 鸡蛋：压扁砸开、蛋壳飞溅、蛋黄往下流；炸弹：引线嗞嗞、弹体闪红，爆炸冲击波后头像被熏黑冒烟；
-// 暴打：一堆拳头从四面八方连环出拳，最后一记重拳砸下，头上冒金星。
+// 暴打：一堆拳头从四面八方连环出拳，最后一记重拳砸下，头上冒金星；
+// 降龙十八掌：运功聚气，金龙蜿蜒飞去，一掌拍下三道冲击波，龙绕头像一圈后化作金光；
+// 掀桌子：掀起牌桌、纸牌飞散，桌子翻滚着倒扣砸在头上，木屑纸牌尘土四溅。
 import { Container, FillGradient, Point, Sprite, Text } from 'pixi.js';
 import { particleTexture, propTexture } from '../gfx/emoji';
 import { Particles } from '../gfx/particles';
@@ -15,6 +17,8 @@ export interface PropHost {
   shakeHud(seat: number): void;
   /** 震屏 */
   shake(strength: number, ms: number): void;
+  /** 画面大小（大字不超出屏幕） */
+  bounds(): { w: number; h: number };
 }
 
 const PI = Math.PI;
@@ -52,6 +56,8 @@ export class PropFx extends Container {
         case 'egg': await this.egg(a, b, to); break;
         case 'bomb': await this.bomb(a, b, to); break;
         case 'punch': await this.punch(a, b, to); break;
+        case 'dragon': await this.dragon(a, b, to); break;
+        case 'flip': await this.flip(a, b, to); break;
       }
     } catch (err) {
       // 动画过程中离开牌桌，对象已被销毁；牌桌还在时才是真的出错
@@ -112,11 +118,21 @@ export class PropFx extends Container {
     s.scale.set(base);
   }
 
+  /** 喊招式名的位置：出招的人头顶，放不下（靠屏幕上边的座位）就放到头像下方 */
+  private callY(a: Point, above: number, below = 120) {
+    return a.y - above >= 40 ? a.y - above : a.y + below;
+  }
+
   /** 金色大字（如“干杯！”） */
   private shout(text: string, x: number, y: number, size = 40) {
     const fill = new FillGradient({ type: 'linear', start: { x: 0, y: 0 }, end: { x: 0, y: 1 }, colorStops: [{ offset: 0, color: 0xfffbe0 }, { offset: 0.5, color: 0xffd34d }, { offset: 1, color: 0xf08a00 }], textureSpace: 'local' });
     const t = new Text({ text, style: { fontFamily: FONT_UI, fontSize: size, fontWeight: '900', fill, stroke: { color: 0x5a2800, width: 7 }, letterSpacing: 2, dropShadow: { color: 0x000000, alpha: 0.4, blur: 4, distance: 3, angle: PI / 2 } } });
     t.anchor.set(0.5);
+    // 不超出屏幕：左右按字宽收进来，上下留边
+    const { w, h } = this.host.bounds();
+    const half = t.width / 2 + 12;
+    x = Math.max(half, Math.min(w - half, x));
+    y = Math.max(t.height / 2 + 8, Math.min(h - t.height / 2 - 8, y));
     t.position.set(x, y);
     t.scale.set(0.3);
     t.rotation = -0.08;
@@ -452,5 +468,132 @@ export class PropFx extends Container {
       });
     }, this.alive(...stars));
     stars.forEach((st) => st.destroy());
+  }
+
+  // ---------- 降龙十八掌 ----------
+
+  private async dragon(a: Point, b: Point, to: number) {
+    // 运功：出招的人周围金光聚气
+    this.shout('降龙十八掌！', a.x, this.callY(a, 96), 40);
+    this.pulse('glow', a.x, a.y, { from: 0.8, to: 2.8, dur: 650, color: 0xffc94a, alpha: 0.6, behind: true });
+    await frames(620, () => {
+      for (let k = 0; k < 2; k++) {
+        const th = Math.random() * PI * 2, r = 80 + Math.random() * 40;
+        this.front.burst({ kind: 'glow', x: a.x + Math.cos(th) * r, y: a.y + Math.sin(th) * r, count: 1, angle: [th + PI, th + PI], speed: [r * 2.3, r * 2.6], life: [360, 420], scale: [0.1, 0.2], colors: [0xffd34d, 0xffb020, 0xfff3b0] });
+      }
+    }, this.alive(this));
+    // 金龙出：先蜿蜒飞向目标，再绕头像盘一圈
+    sound.play('roar');
+    const R = 72;
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+    const perp = { x: -dir.y, y: dir.x };
+    const entry = { x: b.x - dir.x * R, y: b.y - dir.y * R };
+    const ang0 = Math.atan2(entry.y - b.y, entry.x - b.x);
+    // u ∈ [0,1] 飞行，[1,2] 盘绕
+    const path = (u: number) => {
+      if (u <= 1) {
+        const w = Math.sin(u * PI * 3) * 52 * (1 - u * 0.4);
+        return { x: a.x + (entry.x - a.x) * u + perp.x * w, y: a.y + (entry.y - a.y) * u + perp.y * w };
+      }
+      const th = ang0 + (u - 1) * PI * 2.3;
+      return { x: b.x + Math.cos(th) * R, y: b.y + Math.sin(th) * R * 0.8 };
+    };
+    const N = 24, GAP = 0.03;
+    // 从尾到头加进去，龙头盖在最上面
+    const body = Array.from({ length: N }, (_, i) => {
+      const k = N - 1 - i;
+      const seg = this.sprite('dragonScale', 72 - k * 1.9, a.x, a.y);
+      seg.alpha = 0;
+      return { seg, k };
+    });
+    const head = this.sprite('dragonHead', 100, a.x, a.y);
+    const place = (sp: Sprite, u: number) => {
+      const p = path(u), q = path(u + 0.01);
+      sp.position.set(p.x, p.y);
+      sp.rotation = Math.atan2(q.y - p.y, q.x - p.x);
+      // 往左飞时上下翻转，免得龙肚皮朝天
+      sp.scale.y = Math.abs(sp.scale.y) * (Math.cos(sp.rotation) < 0 ? -1 : 1);
+    };
+    let struck = false;
+    const T1 = 650, T2 = 800;
+    await frames(T1 + T2, (_t, ms) => {
+      const U = ms < T1 ? ms / T1 : 1 + (ms - T1) / T2;
+      place(head, U);
+      for (const { seg, k } of body) {
+        const u = U - (k + 1) * GAP;
+        seg.alpha = u > 0 ? 1 : 0;
+        place(seg, Math.max(0, u));
+      }
+      if (Math.random() < 0.7) this.front.burst({ kind: 'sparkle', x: head.x, y: head.y, count: 1, spread: 18, speed: [10, 50], life: [300, 600], scale: [0.12, 0.25], colors: [0xffe58a, 0xffffff, 0xffc94a], twinkle: true });
+      // 龙头到达：一掌拍下
+      if (!struck && U >= 1) { struck = true; this.palmStrike(b, to); }
+    }, this.alive(head));
+    // 金龙化作金光散去，从尾到头
+    for (const { seg, k } of [...body].sort((x, y) => y.k - x.k)) {
+      this.later((N - k) * 25, () => {
+        if (seg.destroyed) return;
+        this.front.burst({ kind: 'sparkle', x: seg.x, y: seg.y, count: 3, spread: 10, speed: [40, 120], life: [400, 700], scale: [0.15, 0.3], colors: [0xffe58a, 0xffffff], twinkle: true });
+        seg.destroy();
+      });
+    }
+    await wait(N * 25 + 40);
+    this.front.burst({ kind: 'sparkle', x: head.x, y: head.y, count: 10, speed: [60, 200], life: [500, 900], scale: [0.2, 0.4], colors: [0xffe58a, 0xffffff], twinkle: true, drag: 2 });
+    await tween(head, { alpha: 0, scale: head.scale.x * 1.3 }, 220);
+    head.destroy();
+  }
+
+  /** 一掌拍在头像上：金色掌印砸下、三道冲击波、金色火花、震屏 */
+  private palmStrike(b: Point, to: number) {
+    sound.play('boom');
+    sound.play('punch');
+    this.host.shake(12, 450);
+    this.host.shakeHud(to);
+    const palm = this.sprite('dragon', 150, b.x, b.y);
+    const k = palm.scale.x;
+    palm.scale.set(k * 2.2);
+    palm.alpha = 0;
+    void tween(palm, { scale: k, alpha: 1 }, 130, { ease: easeIn })
+      .then(() => tween(palm, { alpha: 0, scale: k * 1.08 }, 900, { delay: 350 }))
+      .then(() => { if (!palm.destroyed) palm.destroy(); });
+    for (let i = 0; i < 3; i++) this.later(i * 130, () => this.pulse('ring', b.x, b.y, { from: 0.3, to: 2.4, dur: 600, color: 0xffd34d }));
+    this.pulse('glow', b.x, b.y, { from: 1.5, to: 5, dur: 700, color: 0xffcf33, alpha: 0.75, behind: true });
+    this.front.burst({ kind: 'glow', x: b.x, y: b.y, count: 30, speed: [200, 520], life: [400, 700], scale: [0.15, 0.35], colors: [0xffe066, 0xffb020, 0xfff3b0], drag: 2 });
+    this.front.burst({ kind: 'streak', x: b.x, y: b.y, count: 22, speed: [380, 700], life: [280, 480], scale: [0.3, 0.55], colors: [0xfff3a0, 0xffffff], alignVel: true, drag: 1.5 });
+  }
+
+  // ---------- 掀桌子 ----------
+
+  private async flip(a: Point, b: Point, to: number) {
+    this.shout('(╯°□°)╯︵ ┻━┻', a.x, this.callY(a, 165, 130), 30);
+    // 桌子从扔的人面前掀起来，牌飞出去
+    const s = this.sprite('flip', 118, a.x, a.y - 10);
+    s.alpha = 0;
+    await tween(s, { alpha: 1, y: a.y - 40 }, 120);
+    await tween(s, { rotation: -0.55, y: a.y - 72 }, 170);
+    sound.play('whoosh');
+    this.front.burst({ kind: 'card', x: s.x, y: s.y - 20, count: 14, spread: 20, speed: [220, 440], angle: [PI * 1.1, PI * 1.9], life: [900, 1300], scale: [0.5, 0.8], gravity: 750, spin: 12 });
+    await this.fly(s, new Point(s.x, s.y), b, 640, {
+      spin: PI * 2 + PI + 0.55, arc: 140,
+      trail: (x, y) => {
+        if (Math.random() < 0.15) this.back.burst({ kind: 'card', x, y, count: 1, speed: [30, 90], life: [600, 900], scale: [0.4, 0.6], gravity: 500, spin: 10 });
+      },
+    });
+    // 倒扣着砸在头上
+    s.rotation = PI;
+    sound.play('crash');
+    this.host.shake(14, 480);
+    this.host.shakeHud(to);
+    this.pulse('ring', b.x, b.y, { from: 0.3, to: 1.8, dur: 450, color: 0xe8c79a });
+    this.front.burst({ kind: 'plank', x: b.x, y: b.y, count: 16, spread: 20, speed: [220, 520], life: [700, 1100], scale: [0.5, 0.9], gravity: 1100, spin: 14 });
+    this.front.burst({ kind: 'card', x: b.x, y: b.y, count: 16, spread: 20, speed: [180, 460], life: [900, 1400], scale: [0.5, 0.8], gravity: 700, spin: 12, drag: 0.6 });
+    this.back.burst({ kind: 'smoke', x: b.x, y: b.y + 20, count: 12, spread: 40, speed: [60, 180], angle: [PI * 1.0, PI * 2.0], life: [700, 1200], scale: [0.4, 0.75], grow: 0.7, drag: 1.5, colors: [0xd9c3a0] });
+    await tween(s, { y: b.y - 22, rotation: PI + 0.18 }, 130);
+    await tween(s, { y: b.y, rotation: PI }, 130, { ease: easeIn });
+    await tween(s, { y: b.y - 8, rotation: PI - 0.06 }, 90);
+    await tween(s, { y: b.y, rotation: PI }, 90, { ease: easeIn });
+    await wait(700);
+    await tween(s, { alpha: 0, y: b.y + 20 }, 400);
+    s.destroy();
   }
 }

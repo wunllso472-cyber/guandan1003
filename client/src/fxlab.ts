@@ -23,7 +23,7 @@ const shake = (st: number, ms: number) => {
   const step = () => { const left = end - performance.now(); if (left <= 0) { root.position.set(0, 0); return; } root.position.set((Math.random() - 0.5) * st * 2, (Math.random() - 0.5) * st * 2); requestAnimationFrame(step); };
   step();
 };
-const fx = new PropFx({ seatPos: (s) => seats[s].clone(), shakeHud: () => undefined, shake });
+const fx = new PropFx({ seatPos: (s) => seats[s].clone(), shakeHud: () => undefined, shake, bounds: () => ({ w: W, h: H }) });
 root.addChild(fx);
 
 const w = window as unknown as { fx: (key: string, from?: number, to?: number) => void; freezeAt: (ms: number) => void; resume: () => void };

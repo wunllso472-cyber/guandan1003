@@ -40,7 +40,7 @@ function loadSettings(): AudioSettings {
 export type Sfx =
   | 'click' | 'deal' | 'play' | 'pass' | 'select' | 'tick' | 'warn' | 'bomb' | 'bigbomb' | 'shine'
   | 'win' | 'lose' | 'tribute' | 'chat' | 'flower' | 'heart' | 'beer' | 'egg' | 'boom' | 'turn'
-  | 'whoosh' | 'fuse' | 'thump' | 'sparkle' | 'punch';
+  | 'whoosh' | 'fuse' | 'thump' | 'sparkle' | 'punch' | 'roar' | 'crash';
 
 class SoundEngine {
   settings = loadSettings();
@@ -275,6 +275,19 @@ class SoundEngine {
         break;
       case 'thump': this.tone(90, 0.12, 'sine', 0.45, t, 55); this.tone(80, 0.14, 'sine', 0.35, t + 0.2, 50); break;
       case 'sparkle': this.arp([2093, 2637, 3136, 4186], 0.045, 'sine', 0.07, t); break;
+      case 'roar':
+        // 龙吟：低沉的锯齿波下滑 + 呼啸
+        this.tone(110, 0.9, 'sawtooth', 0.12, t, 55);
+        this.tone(165, 0.7, 'square', 0.04, t + 0.05, 80);
+        this.sweep(t, 0.9, 1800, 300, 0.2);
+        break;
+      case 'crash':
+        // 桌子砸下来：闷响 + 几声木头碰撞
+        this.explosion(t, 0.45, 0.5);
+        this.noiseHit(t, 0.18, 1600, 0.35, 'bandpass');
+        this.noiseHit(t + 0.09, 0.1, 2600, 0.22, 'bandpass');
+        this.noiseHit(t + 0.2, 0.08, 2100, 0.15, 'bandpass');
+        break;
       case 'punch':
         // 闷响 + 拍击声
         this.noiseHit(t, 0.09, 900, 0.4, 'lowpass');

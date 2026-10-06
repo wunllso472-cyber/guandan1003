@@ -32,7 +32,10 @@ export class ChatLayer extends Container {
 
   constructor(private host: ChatHost) {
     super();
-    this.props = new PropFx({ seatPos: (s) => host.seatPos(s), shakeHud: (s) => host.shakeHud(s), shake: (st, ms) => host.fx.shake(st, ms) });
+    this.props = new PropFx({
+      seatPos: (s) => host.seatPos(s), shakeHud: (s) => host.shakeHud(s), shake: (st, ms) => host.fx.shake(st, ms),
+      bounds: () => ({ w: this.DW, h: this.DH }),
+    });
     this.addChild(this.props, this.panel, this.picker);
     this.panel.visible = false;
     this.picker.visible = false;
@@ -149,7 +152,7 @@ export class ChatLayer extends Container {
     const p = this.picker;
     p.removeChildren().forEach((c) => c.destroy({ children: true }));
     p.visible = true;
-    const n = PROPS.length, cw = 82;
+    const n = PROPS.length, cw = n > 6 ? 74 : 82;
     const W = n * cw + 20, H = 110;
     const pos = this.host.seatPos(target);
     const rel = this.host.rel(target);
@@ -166,9 +169,9 @@ export class ChatLayer extends Container {
       const cell = new Container();
       const s = new Sprite(propTexture(prop.key));
       s.anchor.set(0.5);
-      s.width = s.height = 58;
+      s.width = s.height = cw > 80 ? 58 : 54;
       s.position.set(cw / 2, 40);
-      const t = new Text({ text: prop.name, style: { fontFamily: FONT_UI, fontSize: 16, fill: 0xfff4dc, fontWeight: '700' } });
+      const t = new Text({ text: prop.name, style: { fontFamily: FONT_UI, fontSize: prop.name.length > 3 ? 13 : 16, fill: 0xfff4dc, fontWeight: '700' } });
       t.anchor.set(0.5); t.position.set(cw / 2, 88);
       cell.addChild(s, t);
       cell.position.set(10 + i * cw, 0);
