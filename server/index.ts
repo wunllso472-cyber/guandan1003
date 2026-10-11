@@ -1,5 +1,5 @@
 // 掼蛋服务端：静态文件 + WebSocket（/ws）。
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,7 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
 };
 
-const http = createServer(async (req, res) => {
+async function serve(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/healthz') { res.end('ok'); return; }
   if (url.pathname === '/logs') { handleLogs(req, res, url); return; }
@@ -33,7 +33,15 @@ const http = createServer(async (req, res) => {
     res.end(JSON.stringify({ commit: process.env.RENDER_GIT_COMMIT ?? 'local', startedAt: STARTED_AT }));
     return;
   }
-  let p = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(url.pathname);
+  } catch {
+    // 畸形的百分号编码（如 /%E0%A4%A）：以前在这里抛出会让整个进程退出
+    res.writeHead(400).end('bad request');
+    return;
+  }
+  let p = normalize(decoded).replace(/^([/\\])+/, '');
   let file = join(STATIC_DIR, p);
   if (!file.startsWith(STATIC_DIR)) { res.writeHead(403).end(); return; }
   try {
@@ -55,6 +63,15 @@ const http = createServer(async (req, res) => {
     if (url.pathname === '/') res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end('掼蛋联机服务运行中');
     else res.writeHead(404).end('not found');
   }
+}
+
+const http = createServer((req, res) => {
+  // 兜底：处理请求时的任何异常只影响这一个请求，不能让进程退出（房间都在内存里）
+  serve(req, res).catch((err) => {
+    console.error('处理 HTTP 请求出错', req.url, err);
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  });
 });
 
 const rooms = new Map<string, Room>();
