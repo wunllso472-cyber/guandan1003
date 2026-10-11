@@ -3,7 +3,7 @@ import { rankName } from '@shared/cards';
 import { comboName, resolvePlay, type Combo } from '@shared/combo';
 import { partnerOf, teamOf, type GameEvent, type RoundResult } from '@shared/game';
 import { CardTracker } from '@shared/tracker';
-import { advise, buildJevContext, decisionContext, type AdviceOption } from '@shared/advisor';
+import { advise, buildJevContext, comboLabel, decisionContext, type AdviceOption } from '@shared/advisor';
 import { preferLooseCards } from '@shared/ai';
 import { mcStateFrom } from '@shared/mc';
 import { MC_MAXCARDS, decisionLog, mcCandidates, mcConfigFor, pickByMC, type DecisionLog } from '@shared/autoplay';
@@ -79,9 +79,8 @@ export class TableScene extends Container {
   private hintBusy = false;
   /** 本手提示的决策依据（双击“提示”时显示） */
   private hintDecision: DecisionLog | null = null;
-  /** 双击判定：上一次点“提示”的时间；提示还在推演时双击，算完再打开 */
+  /** 双击判定：上一次点“提示”的时间 */
   private lastHintTap = 0;
-  private hintPanelPending = false;
   /** 当前提示的来源：模拟 / Jev / 本地顾问 */
   private hintSource: 'mc' | 'jev' | 'local' = 'local';
   /** 每次轮到新的出牌人加一，用于丢弃过期的 Jev 结果 */
@@ -343,7 +342,6 @@ export class TableScene extends Container {
         if (this.myTurn && !this.client.isAuto(me) && this.watching < 0) sound.play('turn');
         this.hintList = [];
         this.hintDecision = null;
-        this.hintPanelPending = false;
         this.hintIdx = 0;
         this.refreshButtons();
         break;
@@ -464,6 +462,8 @@ export class TableScene extends Container {
         this.chat.onChat(e);
         break;
     }
+    // 决策面板手动打开着时，内容跟着牌局更新
+    if (e.type === 'turn' || e.type === 'play' || e.type === 'pass' || e.type === 'finish' || e.type === 'trickEnd' || e.type === 'sync') this.refreshLivePanel();
   }
 
   /** 断线重连后根据完整状态重建界面 */
@@ -489,7 +489,6 @@ export class TableScene extends Container {
     this.myTurn = g.phase === 'play' && g.turn === me;
     this.hintList = [];
     this.hintDecision = null;
-    this.hintPanelPending = false;
     this.refreshButtons();
     this.refreshReturnBar();
   }
@@ -606,12 +605,47 @@ export class TableScene extends Container {
     const now = performance.now();
     if (now - this.lastHintTap < 350) {
       this.lastHintTap = 0;
-      if (this.hintDecision) this.decisionPanel.showManual(this.hintDecision);
-      else this.hintPanelPending = true;
+      this.decisionPanel.showManual();
+      if (this.hintDecision) this.decisionPanel.setLive(this.hintDecision, this.liveKey());
+      else this.refreshLivePanel();
       return;
     }
     this.lastHintTap = now;
     void this.doHint();
+  }
+
+  private liveKey() { return String(this.turnSerial); }
+
+  /**
+   * 决策面板手动打开着时，跟着牌局更新内容：轮到我时给出顾问的首选和依据（点“提示”后换成带模拟推演的结果），
+   * 没轮到我时显示当前的局面（牌力、外面的牌、三家出牌、推断），不给出法。
+   */
+  private refreshLivePanel() {
+    if (!this.decisionPanel.live) return;
+    const g = this.client.game;
+    const me = this.client.mySeat;
+    if (g.phase !== 'play' || !g.hands[me]?.length) return;
+    // 这一手已经点过提示：保留提示的结果
+    if (this.myTurn && this.hintDecision) return;
+    try {
+      const last = g.lastPlay && g.lastPlay.seat !== me ? g.lastPlay : null;
+      const input = {
+        seat: me, hand: g.hands[me], level: g.level,
+        target: last?.combo ?? null, targetSeat: last?.seat ?? null,
+        counts: g.handCounts(), tracker: this.tracker,
+      };
+      const adv = advise(input);
+      if (!adv.options.length) return;
+      const log = decisionLog(adv, 'hint', 0, 'advisor');
+      const ctx = decisionContext(input, adv, adv.options[0]);
+      if (this.myTurn) { this.decisionPanel.setLive({ ...log, ctx }, this.liveKey()); return; }
+      const who = this.client.players[g.turn]?.name ?? '别人';
+      const table = g.lastPlay ? `桌面：${g.lastPlay.seat === me ? '我' : this.client.players[g.lastPlay.seat].name}的${comboLabel(g.lastPlay.combo, g.level)}` : '新的一轮';
+      this.decisionPanel.setLive({
+        ...log, chosen: '', candidates: [], waiting: `等${who}出牌`,
+        ctx: { ...ctx, trick: `等${who}出牌（${table}）`, five: undefined, book: [] },
+      }, 'wait');
+    } catch (err) { console.warn('决策依据更新失败', err); }
   }
 
   private async doHint() {
@@ -678,7 +712,8 @@ export class TableScene extends Container {
       const key = (c: Combo | null | undefined) => (c ? [...c.cards].sort().join(',') : 'pass');
       const chosen = adv.options.find((o) => key(o.combo) === key(opts[0]?.combo));
       this.hintDecision = { ...hintLog, chosen: opts[0]?.label ?? hintLog.chosen, ctx: decisionContext(input, adv, chosen) };
-      if (this.hintPanelPending) { this.hintPanelPending = false; this.decisionPanel.showManual(this.hintDecision); }
+      // 面板开着时，提示（含模拟推演的结果）替换这一手的实时内容
+      if (this.decisionPanel.live) this.decisionPanel.setLive(this.hintDecision, this.liveKey());
     }
     if (!this.hintList.some((o) => o.combo)) {
       this.toast('没有能大过上家的牌');

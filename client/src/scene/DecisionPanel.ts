@@ -22,6 +22,8 @@ export class DecisionPanel {
   /** 双击提示手动打开（点“关闭”前一直显示） */
   private manual = false;
   private closeBtn: HTMLButtonElement;
+  /** 最后一条记录是哪一手的实时内容（同一手的更新替换它，不新增记录）；null 表示不是实时内容 */
+  private liveKey: string | null = null;
 
   constructor() {
     this.root.className = 'dp';
@@ -53,13 +55,38 @@ export class DecisionPanel {
   }
 
   /** 新的一局清空记录 */
-  reset() { this.list = []; this.idx = -1; this.render(); }
+  reset() { this.list = []; this.idx = -1; this.liveKey = null; this.render(); }
 
   push(d: DecisionLog) {
+    // “等待别人出牌”的实时内容只是过渡，不留在记录里
+    if (this.list[this.list.length - 1]?.waiting) this.list.pop();
+    this.liveKey = null;
     this.list.push(d);
     if (this.list.length > 40) this.list.shift();
     this.idx = this.list.length - 1;
     this.render();
+  }
+
+  /** 手动打开着（双击提示后、点“关闭”前），内容要跟着牌局更新 */
+  get live() { return this.manual && !this.auto; }
+
+  /**
+   * 跟着牌局更新：同一手（key 相同）或上一条是“等待别人出牌”时替换最后一条，否则新增一条。
+   * 正在翻看前面的记录时不跳走；内容原地替换时保留滚动位置。
+   */
+  setLive(d: DecisionLog, key: string) {
+    const last = this.list.length - 1;
+    const atEnd = this.idx === last;
+    const replace = last >= 0 && (this.liveKey === key || !!this.list[last].waiting);
+    if (replace) this.list[last] = d;
+    else {
+      this.list.push(d);
+      if (this.list.length > 40) this.list.shift();
+    }
+    this.liveKey = key;
+    if (atEnd || last < 0) this.idx = this.list.length - 1;
+    else if (!replace && this.list.length === 40) this.idx = Math.max(0, this.idx - 1);
+    this.render(replace && atEnd);
   }
 
   /** 托管开关（托管时自动显示） */
@@ -68,11 +95,10 @@ export class DecisionPanel {
     this.apply();
   }
 
-  /** 手动打开并显示这条决策（双击提示） */
-  showManual(d: DecisionLog) {
+  /** 手动打开（双击提示）；内容由 setLive 填入并跟着牌局更新 */
+  showManual() {
     this.manual = true;
     if (!this.open) { this.open = true; this.body.style.display = ''; }
-    this.push(d);
     this.apply();
   }
 
@@ -93,8 +119,9 @@ export class DecisionPanel {
     this.render();
   }
 
-  private render() {
+  private render(keepScroll = false) {
     const d = this.list[this.idx];
+    const scroll = keepScroll ? this.body.scrollTop : 0;
     this.title.textContent = d ? `${d.source === 'hint' ? '提示依据' : '决策依据'} ${this.idx + 1}/${this.list.length}` : '决策依据';
     if (!d) { this.body.innerHTML = '<div class="dp-none">托管出牌后，这里会显示每手牌的决策依据</div>'; return; }
     const c = d.ctx;
@@ -107,7 +134,8 @@ export class DecisionPanel {
         + (c?.outside ? `<div class="dp-out"><b>外面</b>${c.outside.map((o) => `<span class="${o.left ? '' : 'dp-zero'}">${esc(o.name)} <em>${o.left}</em>${o.note ? `（${esc(o.note)}）` : ''}</span>`).join('')}</div>` : '')
         + '</div>');
     }
-    parts.push(`<div class="dp-pick">出：<b>${esc(d.chosen)}</b><span>${esc(METHOD_CN[d.method] + mc)}</span></div>`);
+    if (d.waiting) parts.push(`<div class="dp-pick"><b>${esc(d.waiting)}</b><span>轮到我时这里会给出建议的出法</span></div>`);
+    else parts.push(`<div class="dp-pick">出：<b>${esc(d.chosen)}</b><span>${esc(METHOD_CN[d.method] + mc)}</span></div>`);
     if (c) {
       parts.push(`<div class="dp-row"><b>阶段</b>${esc(c.stage)}　<b>目标</b>${esc(c.goal)}</div>`);
       parts.push(`<div class="dp-row"><b>本手</b>${esc(c.trick)}</div>`);
@@ -128,10 +156,10 @@ export class DecisionPanel {
     if (pick) parts.push(`<h4>选这手的理由</h4>${li(pick.reasons)}`);
     if (c?.five?.length) parts.push(`<h4>这手牌的五问</h4><ul>${c.five.map((x) => `<li><b>${esc(x.q)}</b>${esc(x.a)}</li>`).join('')}</ul>`);
     if (c?.book.length) parts.push(`<h4>命中的规则（${esc(c.stage)}）</h4>${li(c.book)}`);
-    parts.push('<h4>候选对比（评分越小越好）</h4><table><tr><th>出法</th><th>评分</th><th>模拟</th><th>规则</th></tr>'
+    if (d.candidates.length) parts.push('<h4>候选对比（评分越小越好）</h4><table><tr><th>出法</th><th>评分</th><th>模拟</th><th>规则</th></tr>'
       + d.candidates.map((x) => `<tr class="${x.label === d.chosen ? 'dp-on' : ''}"><td>${esc(x.label)}</td><td>${x.score}</td><td>${x.mc ?? ''}</td><td>${esc(x.rules.join(' '))}</td></tr>`).join('')
       + '</table>');
     this.body.innerHTML = parts.join('');
-    this.body.scrollTop = 0;
+    this.body.scrollTop = scroll;
   }
 }

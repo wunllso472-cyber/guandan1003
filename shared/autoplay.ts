@@ -109,6 +109,8 @@ export interface DecisionLog {
   candidates: { label: string; score: number; mc?: number; reasons: string[]; rules: string[] }[];
   /** 托管时给玩家看的局面依据（见 withContext；复盘日志不保存） */
   ctx?: DecisionContext;
+  /** 还没轮到自己时的实时局面（决策面板手动打开后跟着牌局更新）：在等谁出牌；这时没有出法和候选 */
+  waiting?: string;
 }
 
 /** 把顾问结果和模拟结果整理成决策记录 */
