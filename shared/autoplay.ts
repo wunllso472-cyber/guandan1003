@@ -2,6 +2,7 @@
 // 托管在牌桌控制器里同步执行（单机在浏览器，联机在服务端），所以模拟限定较短的时间预算；
 // 时间内样本不够时直接用顾问的首选（顾问单独对打也略好于原电脑出牌）。
 import { advise, decisionContext, type Advice, type AdviceInput, type DecisionContext } from './advisor';
+import { TIER_CN, coursePower } from './rulebook';
 import { mcStateFrom, monteCarlo, monteCarloShallow, type MCResult, type MCState } from './mc';
 import type { Combo } from './combo';
 
@@ -116,7 +117,7 @@ export function decisionLog(adv: Advice, source: DecisionLog['source'], chosenId
   return {
     source,
     stage: adv.stage,
-    ...(adv.power ? { power: `${{ strong: '强', medium: '中等', weak: '弱' }[adv.power.strength]} ${adv.power.points} 分，${{ attack: '主攻', support: '助攻', undecided: '未定' }[adv.power.role]}：${adv.power.why}` } : {}),
+    ...(adv.power ? { power: `${coursePower.enabled ? TIER_CN[adv.power.tier] : { strong: '强', medium: '中等', weak: '弱' }[adv.power.strength]} ${adv.power.points} 分，${{ attack: '主攻', support: '助攻', undecided: '未定' }[adv.power.role]}：${adv.power.why}` } : {}),
     chosen: adv.options[chosenIdx]?.label ?? '不出',
     method,
     ...(mc ? { mc: { mode: mc.mode, samples: mc.samples, gain: Number(mc.gain.toFixed(3)) } } : {}),

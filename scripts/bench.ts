@@ -7,6 +7,8 @@
 //   例：npx tsx scripts/bench.ts advisor ai 2000
 //   策略名后加 ~old：该队出牌时关闭 shared/ai.ts 的 bombGuard（跟牌不拆炸弹）和 shared/autoplay.ts 的 mcLowSample（样本不足但差距大时采纳模拟），
 //   例：ai ai~old、advisor advisor~old、auto auto~old（之前评估过 bombAlt、splitSafeRule，结论见各自注释）
+//   策略名后加 ~nocourse：该队停用《掼蛋规则与实战技巧》的出牌规则（shared/strategy.ts 的 courseRules）和课程牌力评分（shared/rulebook.ts 的 coursePower）；
+//   ~norules、~nopower 只停其中一项。例：advisor advisor~nocourse
 //
 // 每副牌两队交换座位各打一次（配对比较），抵消牌运差异。
 // GD_TRIBUTE=1：每局按随机的“上一局名次”先进贡/还贡（或抗贡）再开打；GD_NO_LACKS=1：mc 推测手牌时不用进贡/抗贡得到的硬约束。
@@ -20,6 +22,8 @@ import { CardTracker } from '../shared/tracker';
 import type { Combo } from '../shared/combo';
 import { monteCarlo, monteCarloShallow, mcStateFrom as mcStateOf, rolloutNoise, evalModel, shallowDepth, EVAL_WEIGHTS_V1, type RolloutPolicy } from '../shared/mc';
 import { smartPlay, mcConfigFor, pickByMC, mcTies, mcCandidates, mcExtra, MC_END, MC_MID as MID_CFG, mcStage, mcLowSample } from '../shared/autoplay';
+import { courseRules, courseTune, disabledRules } from '../shared/strategy';
+import { coursePower } from '../shared/rulebook';
 import { writeFileSync } from 'node:fs';
 
 const MC_K = Number(process.env.GD_MC_K ?? 4);
@@ -61,6 +65,9 @@ if (process.env.GD_DEPTH) shallowDepth.tricks = Number(process.env.GD_DEPTH);
 if (process.env.GD_STAGE_CARDS) mcStage.maxCards = Number(process.env.GD_STAGE_CARDS);
 /** 中盘局面评分：默认第二版（加入控制牌特征）；GD_EVAL=v1 用第一版 */
 if (process.env.GD_EVAL === 'v1') { evalModel.version = 'v1'; evalModel.weights = EVAL_WEIGHTS_V1; }
+/** GD_COURSE_TUNE=emptyBomb=2,bombFollowup=1：课程规则的分量（shared/strategy.ts 的 courseTune），对手用 ~deftune 保持默认 */
+const TUNE_DEFAULT = { ...courseTune };
+const TUNE_ENV = { ...courseTune, ...Object.fromEntries((process.env.GD_COURSE_TUNE ?? '').split(',').filter(Boolean).map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)]; })) };
 export const jevStats = { decisions: 0, ties: 0, calls: 0, adopted: 0, changed: 0, failed: 0 };
 
 async function choose(strategy: Strategy, { seat, g, tracker }: Ctx): Promise<Combo | null> {
@@ -157,8 +164,16 @@ export async function bench(a: string, b: string, n: number, seed = 200000, para
       const s = g.turn;
       const name = teamOf(s) === aTeam ? a : b;
       const old = name.endsWith('~old');
+      // ~nocourse：停用《掼蛋规则与实战技巧》的出牌规则和课程牌力评分；~norules / ~nopower 只停其中一项
+      const [base, variant] = name.split('~');
       bombGuard.enabled = mcLowSample.enabled = !old;
-      const c = await choose((old ? name.slice(0, -4) : name) as Strategy, { seat: s, g, tracker: trackers[s] }).finally(() => { bombGuard.enabled = mcLowSample.enabled = true; });
+      courseRules.enabled = variant !== 'nocourse' && variant !== 'norules';
+      coursePower.enabled = variant !== 'nocourse' && variant !== 'nopower';
+      // ~deftune：该队用默认分量（另一队用 GD_COURSE_TUNE 的分量）；~no=规则1+规则2：该队停用这些规则
+      Object.assign(courseTune, variant === 'deftune' ? TUNE_DEFAULT : TUNE_ENV);
+      const off = variant?.startsWith('no=') ? variant.slice(3).split('+') : [];
+      off.forEach((r) => disabledRules.add(r));
+      const c = await choose(base as Strategy, { seat: s, g, tracker: trackers[s] }).finally(() => { bombGuard.enabled = mcLowSample.enabled = courseRules.enabled = coursePower.enabled = true; off.forEach((r) => disabledRules.delete(r)); });
       const err = c ? g.play(s, c.cards, c) : g.pass(s);
       if (err) throw new Error(err);
     }

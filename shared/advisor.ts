@@ -4,8 +4,8 @@ import { bombLevel, canBeat, comboName, isBomb, type Combo } from './combo';
 import { findAllPlays } from './finder';
 import { bestSplit, aiPlay, preferLooseCards, bombGuard } from './ai';
 import { CardTracker, sameTypeBeatable, unseenStat, type UnseenStat } from './tracker';
-import { evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
-import { BOOK_RULES, bookGuidance, bookHits, bookState, type BookInput, type Power } from './rulebook';
+import { COURSE_RULE_IDS, evaluateRules, goalOf, RULES, type RuleHit } from './strategy';
+import { BOOK_RULES, TIER_CN, bookGuidance, bookHits, bookState, coursePower, type BookInput, type Power } from './rulebook';
 import { profileConfidence, profileSeats } from './inference';
 
 export type Control = 'unbeatable' | 'bombOnly' | 'beatable';
@@ -180,9 +180,11 @@ export function collectFacts(inp: AdviceInput, st: UnseenStat): { facts: string[
       for (const t of rec.leads) cnt.set(t, (cnt.get(t) ?? 0) + 1);
       for (const [t, n] of cnt) if (n >= 2) inferred.push({ who, text: `多次先出${typeName(t)}，可能还有${typeName(t)}`, confidence: 0.5 });
     }
-    if (rec.count > 0 && rec.count <= 3) {
-      const guess = rec.count === 1 ? '单张' : rec.count === 2 ? '一对或两张单张' : '三张或对子加单张';
-      inferred.push({ who, text: `只剩 ${rec.count} 张，可能是${guess}`, confidence: 0.6 });
+    const guess = COUNT_SHAPES[rec.count];
+    if (guess) {
+      // 张数只能列出候选结构；外面凑不出炸弹时去掉带炸弹的候选
+      const shapes = bombPossible(st, level) ? guess : guess.filter((x) => !x.includes('炸'));
+      if (shapes.length) inferred.push({ who, text: `只剩 ${rec.count} 张，可能是${shapes.join('、')}`, confidence: rec.count <= 3 ? 0.6 : 0.4 });
     }
   }
   // 教材 I01–I08：从公开出牌推断主攻/助攻倾向和牌路（只是倾向，附依据）
@@ -196,6 +198,20 @@ export function collectFacts(inp: AdviceInput, st: UnseenStat): { facts: string[
   }
   return { facts, inferred };
 }
+
+/** 报牌张数对应的常见结构（《掼蛋规则与实战技巧》第八章；只是待验证的候选，不能确定是哪一种） */
+const COUNT_SHAPES: Record<number, string[]> = {
+  1: ['单张'],
+  2: ['一对', '两张单牌'],
+  3: ['三张', '对子加单张'],
+  4: ['空炸（只剩一个炸弹）', '两对', '三张加一单'],
+  5: ['顺子', '三带二', '空炸', '一单加四头炸'],
+  6: ['钢板', '三连对', '两单加四头炸', '一对加四头炸', '一单加五张炸弹'],
+  7: ['一单一对加四头炸', '一对加五张炸弹', '一单加六张炸弹'],
+  8: ['一单一对加五张炸弹', '两个四头炸', '其他普通牌组合'],
+  9: ['五张普通牌加四头炸', '四头炸加五张炸弹', '一单加两个四头炸'],
+  10: ['两手五张牌', '五张普通牌加五张炸弹', '多手散牌'],
+};
 
 function typeName(t: string): string {
   return ({ single: '单张', pair: '对子', triple: '三张', fullhouse: '三带二', straight: '顺子', tube: '三连对', plate: '钢板', bomb: '炸弹', straightflush: '同花顺', jokerbomb: '天王炸' } as Record<string, string>)[t] ?? t;
@@ -288,6 +304,7 @@ export function advise(inp: AdviceInput): Advice {
   const bs = bookState(bookIn);
   // 对手剩的牌都不到 4 张时不可能有炸弹（炸弹至少 4 张）
   const oppNoBomb = [next, prev].every((s) => !active(s) || counts[s] < 4);
+  const outsideBomb = bombPossible(st, level);
   for (const o of options) {
     const f = o.features!;
     const rest = restOf.get(o)!;
@@ -309,14 +326,17 @@ export function advise(inp: AdviceInput): Advice {
       breaksLinks: !urgent && !f.finishes && !f.isBomb && f.handsLeft >= baseHands,
       maxGateSingle,
       bombSplitSafe,
+      role: bs.power.role,
+      outsideBomb,
+      shedsWeak: f.handsLeft < baseHands,
     }), ...book.hits];
     o.rules = hits;
     o.book = book.matched.map((r) => r.id);
     o.score += hits.reduce((a, h) => a + h.weight, 0);
     // 理由：分量大的规则说明排在前面
     // 教材规则支持这个出法时，即使分量小也作为理由（反对的只在分量大时说明）
-    const ruleNotes = hits.filter((h) => Math.abs(h.weight) >= 0.5 || (h.id in BOOK_RULES && h.weight < 0))
-      .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).map((h) => h.note);
+    const ruleNotes = hits.filter((h) => Math.abs(h.weight) >= 0.5 || (h.id in BOOK_RULES && h.weight < 0) || (COURSE_RULE_IDS.has(h.id) && h.effect === 'support'))
+      .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).map((h) => (COURSE_RULE_IDS.has(h.id) && h.effect === 'oppose' ? `注意：${h.note}` : h.note));
     o.reasons = [...new Set([...(f.finishes ? ['一手出完'] : []), ...ruleNotes, ...o.reasons])];
     if (!o.reasons.length) o.reasons.push(f.handsLeft <= 1 ? '出完后很快就能走完' : `出完后还剩 ${f.handsLeft} 手牌`);
   }
@@ -342,9 +362,10 @@ export function advise(inp: AdviceInput): Advice {
     const hits = [...evaluateRules({
       seat, hand, level, combo: null, target, targetSeat, counts, tracker, features: null,
       restCombos: base.combos, lastHandControl: null, canRecapture: false, safeLastExists, breaksLinks: false, maxGateSingle,
+      role: bs.power.role, outsideBomb,
     }), ...book.hits];
     score += hits.reduce((a, h) => a + h.weight, 0);
-    const notes = hits.filter((h) => Math.abs(h.weight) >= 0.5).map((h) => h.note);
+    const notes = hits.filter((h) => Math.abs(h.weight) >= 0.5 || (COURSE_RULE_IDS.has(h.id) && h.effect === 'support')).map((h) => h.note);
     options.push({ id: 'pass', combo: null, label: '不出', features: null, score, reasons: [...new Set([...notes, ...reasons])], rules: hits, book: book.matched.map((r) => r.id) });
   }
 
@@ -434,6 +455,25 @@ export const STAGE_FOCUS: Record<string, { name: string; focus: string[] }> = {
   endgame: { name: '残局', focus: ['算清各家剩余张数，确保自己或对家能先走', '对手快走时不出他能接的牌型，必要时用炸弹拦截', '对家快走时送小牌让他走，自己留好最后一手'] },
 };
 
+/** 按打法补充的要点（《掼蛋规则与实战技巧》第三、五、九章） */
+const ROLE_FOCUS: Record<Power['role'], Record<string, string[]>> = {
+  attack: {
+    opening: ['主攻前期“打下放上”：借上家的牌顺掉弱牌，适度限制下家拿牌权', '先处理有回收的弱路和以后难顺的牌，保留能调整的组合'],
+    middle: ['到位就启动；留好冲刺的炸弹，不做无效的跟炸'],
+    endgame: ['主攻留实力：先用登基牌逼炸，再冲刺；防对手再顺一手就用大炸到位'],
+  },
+  support: {
+    opening: ['助攻前期“打上放下”：限制上家拿牌权，下家领牌时让对家顺牌（危险的下家必须拦）', '情况不明用中小对子试探，别贸然让对手顺走五张牌'],
+    middle: ['主动送牌、消耗对手火力；卡住下家想顺的牌，也别把对家要的小牌挡死'],
+    endgame: ['助攻打消耗：牌散的一方先出炸拦截，把对家的炸弹留给冲刺'],
+  },
+  undecided: {
+    opening: ['牌力在交界：先看对家强弱和自己的结构，不急着定主攻还是助攻'],
+    middle: ['谁更接近走完，谁转主攻'],
+    endgame: ['每次对手报牌重新判断：角色变没变、大牌在哪、还有几手炸弹、普通牌还要几手'],
+  },
+};
+
 const GOAL_CN = { first: '争上游（还没有人出完）', second: '对家已头游，争取二游打成双上', protect: '对手已头游，保对家不当末游、阻止对方双上' } as const;
 
 /** 托管一手牌的决策依据：局面、自己的手牌、三家的出牌情况和本阶段适用的规则 */
@@ -452,6 +492,8 @@ export interface DecisionContext {
   facts: string[];
   /** 选中出法命中的教材规则（按阶段匹配） */
   book: string[];
+  /** 每手牌的五问（《掼蛋规则与实战技巧》第十二章）：对选中的出法逐条回答 */
+  five?: { q: string; a: string }[];
 }
 
 export function decisionContext(inp: AdviceInput, adv: Advice, chosen: AdviceOption | undefined): DecisionContext {
@@ -475,15 +517,15 @@ export function decisionContext(inp: AdviceInput, adv: Advice, chosen: AdviceOpt
   return {
     outside,
     power: pw && {
-      level: { strong: '强', medium: '中等', weak: '弱' }[pw.strength],
+      level: coursePower.enabled ? TIER_CN[pw.tier] : { strong: '强', medium: '中等', weak: '弱' }[pw.strength],
       points: pw.points,
-      detail: [`拆成 ${pw.hands} 手`, `炸弹 ${pw.bombs} 个（+${pw.bombs * 4}）`, `外面压不住的 ${pw.controls} 手（+${pw.controls}）`,
-        `要先拿到出牌权才能出的小牌 ${pw.lows} 手（-${pw.lows}）`].join('，'),
+      detail: [`拆成 ${pw.hands} 手`, `炸弹 ${pw.bombs} 个（+${pw.bombPoints}）`, `登基牌（外面压不住）${pw.controls} 手（+${pw.controls}）`,
+        `坠牌（要先拿到出牌权才能出的小牌）${pw.lows} 手（-${pw.lows}）`, ...(pw.doubleDown ? ['被打双下（-2）'] : [])].join('，'),
       role: { attack: '抢头游（主攻）', support: '送对家（助攻）', undecided: '先看对家牌路（还没定）' }[pw.role],
       why: pw.why,
     },
     stage: stage.name,
-    focus: stage.focus,
+    focus: [...(pw ? ROLE_FOCUS[pw.role][adv.stage ?? ''] ?? [] : []), ...stage.focus],
     goal: GOAL_CN[goalOf(seat, tracker)],
     trick: target && targetSeat !== null ? `压${name(targetSeat)}的${comboLabel(target, level)}` : '我先出（首出）',
     hand: {
@@ -503,6 +545,65 @@ export function decisionContext(inp: AdviceInput, adv: Advice, chosen: AdviceOpt
       };
     }),
     facts: adv.facts,
-    book: (chosen?.book ?? []).filter((id) => BOOK_RULES[id]).map((id) => `${id} ${BOOK_RULES[id].title}`),
+    book: [
+      ...(chosen?.rules ?? []).filter((h) => COURSE_RULE_IDS.has(h.id)).map((h) => `${RULES[h.id].name}（${RULES[h.id].source}）`),
+      ...(chosen?.book ?? []).filter((id) => BOOK_RULES[id]).map((id) => `${id} ${BOOK_RULES[id].title}`),
+    ],
+    five: chosen && fiveQuestions(inp, adv, chosen, st),
   };
+}
+
+/** 每手牌的五问：谁更有机会先走、这一手在做什么、谁会因此拿牌权、拿到牌权出什么、还留几次控制 */
+function fiveQuestions(inp: AdviceInput, adv: Advice, o: AdviceOption, st: UnseenStat): { q: string; a: string }[] {
+  const { seat, hand, level, target, targetSeat, counts } = inp;
+  const partner = (seat + 2) % 4, next = (seat + 1) % 4, prev = (seat + 3) % 4;
+  const name = (s: number) => (s === seat ? '我' : WHO_CN[WHO[rel(seat, s)]]);
+  const c = o.combo, f = o.features;
+  const rest = c ? hand.filter((id) => !c.cards.includes(id)) : hand;
+  const restCombos = rest.length ? bestSplit(rest, level, st).combos : [];
+  const plain = restCombos.filter((x) => !isBomb(x));
+  const ctl = plain.filter((x) => controlOf(x, st, level) !== 'beatable');
+  const weak = plain.filter((x) => controlOf(x, st, level) === 'beatable').sort((a, b) => a.value - b.value);
+  const bombs = restCombos.filter(isBomb);
+
+  // 1 谁更有机会先走：比较各家剩余张数，自己按牌力打法
+  const alive = [seat, next, partner, prev].filter((s) => counts[s] > 0);
+  const lead = [...alive].sort((a, b) => counts[a] - counts[b])[0];
+  const role = adv.power ? { attack: '主攻', support: '助攻', undecided: '还没定' }[adv.power.role] : '';
+  const a1 = `${alive.map((s) => `${name(s)} ${counts[s]} 张`).join('、')}；${name(lead)}最接近走完${role ? `，我这手按${role}打` : ''}`;
+
+  // 2 这一手在做什么
+  let a2: string;
+  if (!c || !f) a2 = targetSeat === partner ? '让对家：不抢他的牌权' : '放行：留着控制牌和炸弹，等更合适的时机';
+  else if (f.finishes) a2 = '走完最后一手';
+  else if (f.isBomb) a2 = target ? (counts[targetSeat!] <= 10 ? '拦截：用炸弹截断快到位的对手' : '消耗火力：用炸弹抢回牌权') : '冲刺：主动出炸弹';
+  else if (!target) {
+    if (counts[partner] > 0 && counts[partner] <= 5 && c.value <= 10 && (c.type === 'single' || c.type === 'pair')) a2 = '送队友：出对家可能接得住的小牌';
+    else if (f.control !== 'beatable') a2 = '逼炸 / 拿牌权：出外面同类压不住的牌';
+    else a2 = `顺自己的弱牌${ctl.some((x) => x.type === c.type) ? '（有打有收：手里还有同类的登基牌能收回牌权）' : ''}`;
+  } else if (targetSeat === partner) a2 = '接对家的牌';
+  else if (f.control !== 'beatable') a2 = `卡对手：用外面同类压不住的牌拿下${name(targetSeat!)}的牌权`;
+  else a2 = `顺牌：借${name(targetSeat!)}的牌处理自己的${typeName(c.type)}`;
+
+  // 3 谁会因此拿牌权
+  let a3: string;
+  if (!c || !f) a3 = target && targetSeat !== null ? `大概率是${name(targetSeat)}（他这手牌还压在桌上）` : '—';
+  else if (f.finishes) a3 = counts[partner] > 0 ? '没人压得住的话由对家接风' : '我已出完';
+  else a3 = { unbeatable: '我：外面没人压得住', bombOnly: '我，除非有人用炸弹', beatable: '不一定：外面还有同类更大的牌' }[f.control];
+
+  // 4 拿到牌权出什么
+  const a4 = !rest.length ? '已经出完'
+    : weak.length ? `接着处理${weak.slice(0, 2).map((x) => comboLabel(x, level)).join('、')}${weak.length > 2 ? ` 等 ${weak.length} 手弱牌` : ''}`
+    : '剩下的都是登基牌和炸弹，可以直接冲刺';
+
+  // 5 还留几次控制
+  const a5 = `${ctl.length} 手登基牌${ctl.length ? `（${ctl.slice(0, 3).map((x) => comboLabel(x, level)).join('、')}）` : ''}、${bombs.length} 个炸弹；还有 ${weak.length} 手弱牌要处理`;
+
+  return [
+    { q: '谁更有机会先走', a: a1 },
+    { q: '这一手在做什么', a: a2 },
+    { q: '谁会因此拿牌权', a: a3 },
+    { q: '拿到牌权出什么', a: a4 },
+    { q: '还留几次控制', a: a5 },
+  ];
 }

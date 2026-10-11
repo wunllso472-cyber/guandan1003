@@ -33,12 +33,35 @@ export interface BookInput {
   controlOf: (c: Combo) => Control;
 }
 
+/**
+ * 牌力评分按《掼蛋规则与实战技巧》第三章的课程分值（enabled=false 恢复旧算法：炸弹 +4，12 分以上强、不到 6 分弱；评估用）：
+ * 四头炸 +2、五头炸 +3、同花顺 +3（六张以上的炸弹和天王炸文档没有给分，这里按 +4）、登基牌 +1、坠牌 -1，被打双下后再 -2；
+ * 五档：8 分以上强主攻、6–7 主攻、4–5 可切换、2–3 助攻、1 分以下弱助攻。
+ */
+export const coursePower = { enabled: true, recover: true };
+
+export type Tier = 'strongAttack' | 'attack' | 'flex' | 'support' | 'weakSupport';
+export const TIER_CN: Record<Tier, string> = { strongAttack: '强主攻', attack: '主攻', flex: '可切换', support: '助攻', weakSupport: '弱助攻' };
+
+/** 课程分值：一个炸弹加几分 */
+export function bombPoints(c: Combo): number {
+  if (c.type === 'jokerbomb') return 4;
+  if (c.type === 'straightflush') return 3;
+  return c.cards.length >= 6 ? 4 : c.cards.length === 5 ? 3 : 2;
+}
+
 /** 自己的牌力评估和由此决定的打法（主攻抢头游 / 助攻送对家） */
 export interface Power {
-  /** 教材经验分：炸弹 +4、外面压不住的一手 +1、要先拿到出牌权才能出的小牌 -1 */
+  /** 课程经验分：四头炸 +2、五头炸和同花顺 +3、登基牌（外面同类压不住的一手）+1、坠牌（要先拿到出牌权才能出的小牌）-1 */
   points: number;
   strength: 'strong' | 'medium' | 'weak';
+  /** 课程的五档牌力 */
+  tier: Tier;
   bombs: number;
+  /** 炸弹一共加的分 */
+  bombPoints: number;
+  /** 这一局本方被打双下（两人都进贡），评分已减 2 */
+  doubleDown: boolean;
   /** 外面压不住的手数 */
   controls: number;
   /** 难出的小牌手数 */
@@ -76,28 +99,46 @@ export function bookState(inp: BookInput): BookState {
   // 阶段按实际局面判断：有人出完或任一家余牌不超过 10 张进入残局（提示词步骤 3 的实现建议）
   const stage: Stage = finished || [0, 1, 2, 3].some((s) => active(s) && counts[s] <= 10) ? 'endgame' : played <= 24 ? 'opening' : 'middle';
 
-  // 教材经验计分：每把炸弹 +4、每手外面压不住的牌 +1、每手要先拿到出牌权才能出的小牌 -1
-  let bombs = 0, controls = 0, lows = 0;
+  // 课程经验计分：炸弹按张数加分、每手登基牌（外面同类压不住）+1、每手坠牌（要先拿到出牌权才能出的小牌）-1
+  let bombs = 0, bombPts = 0, controls = 0, lows = 0;
   for (const c of baseCombos) {
-    if (isBomb(c)) bombs++;
+    if (isBomb(c)) { bombs++; bombPts += coursePower.enabled ? bombPoints(c) : 4; }
     else if (controlOf(c) !== 'beatable') controls++;
     else if (low(c)) lows++;
   }
-  const points = bombs * 4 + controls - lows;
-  const strength = points >= 12 ? 'strong' : points >= 6 ? 'medium' : 'weak';
+  // 坠牌是“难顺走、没有回收”的弱牌：同类型手里有登基牌能收回牌权的那一手不算（每手登基牌抵一手）
+  if (coursePower.enabled && coursePower.recover) {
+    for (const t of new Set(baseCombos.map((c) => c.type))) {
+      const same = baseCombos.filter((c) => c.type === t && !isBomb(c));
+      const ctl = same.filter((c) => controlOf(c) !== 'beatable').length;
+      lows -= Math.min(ctl, same.filter((c) => controlOf(c) === 'beatable' && low(c)).length);
+    }
+  }
+  // 被打双下（本方两人都进贡）：对手因双贡变强，评分减 2
+  const doubleDown = coursePower.enabled && tracker.seats[seat].tributed !== null && tracker.seats[partner].tributed !== null;
+  const points = bombPts + controls - lows - (doubleDown ? 2 : 0);
+  const tier: Tier = coursePower.enabled
+    ? (points >= 8 ? 'strongAttack' : points >= 6 ? 'attack' : points >= 4 ? 'flex' : points >= 2 ? 'support' : 'weakSupport')
+    : (points >= 12 ? 'strongAttack' : points >= 6 ? 'flex' : 'support');
+  const strength = tier === 'strongAttack' || tier === 'attack' ? 'strong' : tier === 'flex' ? 'medium' : 'weak';
   // 三家画像：对家像在主攻时，自己（不是强牌）转为助攻；对手像在主攻时，提前当作冲刺威胁
   const profiles = profileSeats(tracker, seat);
   const partnerAttacks = active(partner) && profiles[partner]?.role === 'attack';
-  const strengthCn = { strong: '强', medium: '中等', weak: '弱' }[strength];
+  const strengthCn = coursePower.enabled ? TIER_CN[tier] : { strong: '强', medium: '中等', weak: '弱' }[strength];
   let role: Power['role'] = strength === 'strong' ? 'attack' : strength === 'weak' ? 'support' : 'undecided';
-  let why = strength === 'strong' ? '12 分以上，自己主攻抢头游'
-    : strength === 'weak' ? '不到 6 分，打助攻给对家送牌'
-    : '6–11 分，先看对家的牌路再定主攻还是助攻';
+  let why = !coursePower.enabled ? (strength === 'strong' ? '12 分以上，自己主攻抢头游' : strength === 'weak' ? '不到 6 分，打助攻给对家送牌' : '6–11 分，先看对家的牌路再定主攻还是助攻')
+    : {
+      strongAttack: '8 分以上强主攻：保证自己先走，同时让对家顺牌、消耗对手的控制',
+      attack: '6–7 分主攻：简化手数、处理弱牌，到位就启动，留好冲刺的炸弹',
+      flex: '4–5 分可切换：先看对家强弱，谁更接近走完谁主攻',
+      support: '2–3 分助攻：保留控制和多样牌型，让对家顺牌、卡住下家',
+      weakSupport: '1 分以下弱助攻：重点保对家，必要时拆牌配合',
+    }[tier];
   if (!active(partner)) { role = 'attack'; why = '对家已出完，只能自己冲'; }
   else if (counts[partner] + 5 <= hand.length && counts[partner] <= 12) { role = 'support'; why = `对家只剩 ${counts[partner]} 张，比我少 ${hand.length - counts[partner]} 张，送对家先走`; }
-  else if (partnerAttacks && strength !== 'strong') { role = 'support'; why = `对家像在主攻，我牌力${strengthCn}，转为助攻`; }
+  else if (partnerAttacks && strength !== 'strong') { role = 'support'; why = `对家像在主攻，我牌力${coursePower.enabled ? `${points} 分（${strengthCn}）` : strengthCn}，转为助攻`; }
   const hands = baseCombos.filter((c) => !isBomb(c)).length;
-  const power: Power = { points, strength, bombs, controls, lows, hands, role, why };
+  const power: Power = { points, strength, tier, bombs, bombPoints: bombPts, doubleDown, controls, lows, hands, role, why };
 
   // 本方领出的牌型，对手跟着顺牌的次数
   const shed = new Map<ComboType, number>();

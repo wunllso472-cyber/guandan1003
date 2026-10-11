@@ -57,7 +57,43 @@ export const RULES: Record<string, Rule> = {
     id: 'DONT_OVERTAKE', name: '不抢对家的牌', source: '第6.1节',
     principle: 'Do not overtake the partner unless taking over clearly shortens the team route or blocks an opponent from finishing.',
   },
+  // 以下出自《掼蛋规则与实战技巧》（80 集课程提炼），由 courseRules 开关控制
+  LAST_DEFENSE: {
+    id: 'LAST_DEFENSE', name: '末位负责', source: '实战技巧 第九章 原则3',
+    principle: 'When the partner has passed and I am the last player before the next opponent wins the trick, I am the last line of defence: decide explicitly whether letting it through risks losing first place.',
+  },
+  EMPTY_BOMB: {
+    id: 'EMPTY_BOMB', name: '防空炸、防大炸到位', source: '实战技巧 第八章、第九章 原则12、13',
+    principle: 'An opponent with 5-8 cards may hold one plain play plus a bomb. Do not lead the small single or pair that lets the plain play go; once only the bomb is left it is too late to defend.',
+  },
+  WHO_BOMBS: {
+    id: 'WHO_BOMBS', name: '谁先出炸', source: '实战技巧 第九章 原则2、11',
+    principle: 'The teammate whose hand is scattered and not ready bombs first; the teammate who is ready to sprint keeps the bombs. Attackers keep strength, supporters spend it.',
+  },
+  BOMB_FOLLOWUP: {
+    id: 'BOMB_FOLLOWUP', name: '炸后要能推进', source: '实战技巧 第九章 共同条件',
+    principle: 'After a bomb wins the trick, either I or the partner must be able to advance. If neither can and there is no useful feed, the bomb only spends our own firepower.',
+  },
+  UP_DOWN: {
+    id: 'UP_DOWN', name: '打下放上 / 打上放下', source: '实战技巧 第五章',
+    principle: 'Early on, an attacker sheds weak cards on the leads of the previous player and limits the next player; a supporter limits the previous player and lets the next player lead so the partner can shed right behind them. Stop yielding once an opponent is close to sprinting.',
+  },
 };
+
+/** 《掼蛋规则与实战技巧》的出牌规则（enabled=false 全部停用，评估用：scripts/bench.ts 策略名加 ~nocourse） */
+export const courseRules = { enabled: true };
+/**
+ * 各条课程规则的分量（评估用可调：scripts/bench.ts 的 GD_COURSE_TUNE=emptyBomb=2,bombFollowup=1，对手加 ~deftune 用默认值）。
+ * 评估（顾问对顾问配对对打，各 3000 局，每局净升级）：
+ *   末位负责 0.8/0.4 → +0.002 ±0.008；加到 2/1 再 +0.036 ±0.017，采用 2/1。
+ *   炸后要能推进 0.4 → +0.004 ±0.006；加到 1 再 +0.006 ±0.006，采用 1。
+ *   防空炸 0.6 → +0.001 ±0.007；加到 2.5 是 −0.003 ±0.010，保持 0.6（张数只能列出候选结构，不宜当硬规则）。
+ *   谁先出炸 0.4 → +0.001 ±0.004。
+ *   打下放上 / 打上放下：两半各 0.3 时 −0.027 ±0.020；只留主攻一半（打下放上）+0.003 ±0.005。
+ *   所以助攻一半（打上放下：放下家领牌）分量为 0，只作为提示理由，不影响排序。
+ */
+export const courseTune = { lastDefensePass: 2, lastDefensePlay: 1, emptyBomb: 0.6, whoBombs: 0.4, bombFollowup: 1, upDownAttack: 0.3, upDownSupport: 0 };
+export const COURSE_RULE_IDS = new Set(['LAST_DEFENSE', 'EMPTY_BOMB', 'WHO_BOMBS', 'BOMB_FOLLOWUP', 'UP_DOWN']);
 
 export interface RuleHit {
   id: string;
@@ -95,6 +131,12 @@ export interface RuleContext {
   maxGateSingle: number;
   /** 拆炸弹但很安全：对手剩的牌都不到 4 张（不可能有炸弹），拆开后这手和剩下的同点数牌外面都压不住 */
   bombSplitSafe?: boolean;
+  /** 自己的打法（按课程牌力评分）；不传时不判断“打下放上 / 打上放下” */
+  role?: 'attack' | 'support' | 'undecided';
+  /** 外面还可能凑出炸弹（防空炸用） */
+  outsideBomb?: boolean;
+  /** 这手顺掉了一手弱牌（出完后手数比原来少） */
+  shedsWeak?: boolean;
 }
 
 /**
@@ -134,9 +176,11 @@ export function evaluateRules(c: RuleContext): RuleHit[] {
     if (targetSeat !== null && targetSeat !== partner && active(targetSeat) && counts[targetSeat] <= 5) {
       hits.push(hit('STOP_FINISH', 'oppose', 2.5, `对手只剩 ${counts[targetSeat]} 张，放过可能让他直接走完`, `the opponent who made this play has only ${counts[targetSeat]} cards and may go out if I pass`));
     }
+    if (courseRules.enabled) hits.push(...courseHits(c));
     return disabledRules.size ? hits.filter((h) => !disabledRules.has(h.id)) : hits;
   }
   if (!f) return hits;
+  if (courseRules.enabled) hits.push(...courseHits(c));
 
   // 传牌门槛：送给对家的牌，下家先行动
   if (leading && active(partner) && counts[partner] <= 3 && active(next) && counts[next] <= 2 && combo.type === 'single') {
@@ -206,6 +250,79 @@ export function evaluateRules(c: RuleContext): RuleHit[] {
     hits.push(hit('DONT_OVERTAKE', 'oppose', 0.6, '抢了对家的牌', 'overtakes the partner without going out'));
   }
   return disabledRules.size ? hits.filter((h) => !disabledRules.has(h.id)) : hits;
+}
+
+/** 前中期：自己出过的手数不超过 6 手（课程按每家自己的已出手数分阶段：前三手前期，第 4–6 手中期，第 7 手起后期） */
+const EARLY_PLAYS = 6;
+
+/** 《掼蛋规则与实战技巧》的出牌规则：末位负责、防空炸、谁先出炸、炸后要能推进、打下放上 / 打上放下 */
+function courseHits(c: RuleContext): RuleHit[] {
+  const { seat, counts, combo, target, targetSeat, features: f, tracker } = c;
+  const partner = (seat + 2) % 4, next = (seat + 1) % 4, prev = (seat + 3) % 4;
+  const active = (s: number) => counts[s] > 0;
+  const hits: RuleHit[] = [];
+  const T = courseTune;
+  const fromOpp = !!target && targetSeat !== null && targetSeat !== partner && targetSeat !== seat;
+  // 末位负责：下家的牌压在桌上，说明对家没接；我再放过，下家就拿到牌权（上家的牌则还有对家在后面把关）
+  const lastLine = fromOpp && targetSeat === next && active(next) && counts[next] <= 10;
+  const calm = ![next, prev].some((s) => active(s) && counts[s] <= 10);
+  const early = calm && tracker.seats[seat].plays.length < EARLY_PLAYS;
+
+  if (!combo) {
+    if (lastLine) {
+      hits.push(hit('LAST_DEFENSE', 'oppose', T.lastDefensePass, `对家没接，我是最后一道防线：放过去下家（剩 ${counts[next]} 张）接着领牌`,
+        `the partner passed and I am the last defender; passing gives the lead back to the next opponent (${counts[next]} cards left)`));
+    } else if (early && fromOpp && targetSeat === next && c.role === 'support') {
+      hits.push(hit('UP_DOWN', 'support', -T.upDownSupport, '助攻前期“打上放下”：放下家领牌，对家紧跟在他后面好顺牌',
+        'supporter early on: let the next opponent keep the lead so the partner can shed right behind them'));
+    } else if (early && fromOpp && targetSeat === next && c.role === 'attack') {
+      hits.push(hit('UP_DOWN', 'oppose', T.upDownAttack * 2 / 3, '主攻前期“打下放上”：别让下家轻松拿牌权', 'attacker early on: do not hand the lead to the next opponent cheaply'));
+    }
+    return hits;
+  }
+  if (!f) return hits;
+
+  if (lastLine && !f.isBomb && !f.finishes) {
+    hits.push(hit('LAST_DEFENSE', 'support', -T.lastDefensePlay, `对家没接，我是最后一道防线，压住下家（剩 ${counts[next]} 张）`,
+      'the partner passed and I am the last defender; beating the play keeps the next opponent off the lead'));
+  }
+
+  // 防空炸、防大炸到位：按报牌张数的常见结构，对手可能是“一手普通牌 + 炸弹”，别用小单张、小对子帮他把普通牌顺掉
+  if (!target && !f.finishes && f.control === 'beatable' && c.outsideBomb && combo.value < 14 && (combo.type === 'single' || combo.type === 'pair')) {
+    const [lo, hi, shape] = combo.type === 'single' ? [5, 7, '一单加炸弹'] : [6, 8, '一对加炸弹'];
+    for (const [s, name, w] of [[next, '下家', T.emptyBomb], [prev, '上家', T.emptyBomb / 2]] as [number, string, number][]) {
+      if (!active(s) || counts[s] < lo || counts[s] > hi) continue;
+      hits.push(hit('EMPTY_BOMB', 'oppose', w, `${name}剩 ${counts[s]} 张，可能是${shape}：小${typeCn(combo.type)}会帮他顺掉普通牌、只剩空炸`,
+        `${s === next ? 'next' : 'previous'} opponent has ${counts[s]} cards, possibly one plain play plus a bomb; a small ${combo.type} lets the plain play go`));
+      break;
+    }
+  }
+
+  if (f.isBomb && !f.finishes && fromOpp) {
+    const opp = counts[targetSeat!];
+    // 谁先出炸：我牌还散、对家快到位时，拦截的炸弹由我来出，对家的留着冲刺
+    if (active(partner) && counts[partner] <= 8 && f.handsLeft >= 3 && opp <= 10) {
+      hits.push(hit('WHO_BOMBS', 'support', -T.whoBombs, `我炸完还有 ${f.handsLeft} 手、对家只剩 ${counts[partner]} 张：这一炸由我来出，对家的火力留着冲刺`,
+        `my hand is scattered and the partner has only ${counts[partner]} cards: I spend the bomb so the partner keeps strength for the sprint`));
+    }
+    // 炸后要能推进：自己还很散、对家也远没到位、对手又不急，炸了只是消耗己方火力
+    if (f.handsLeft >= 5 && (!active(partner) || counts[partner] >= 15) && opp > 8) {
+      hits.push(hit('BOMB_FOLLOWUP', 'oppose', T.bombFollowup, `炸住以后我还有 ${f.handsLeft} 手${active(partner) ? `、对家还剩 ${counts[partner]} 张` : ''}，谁都推进不了，只是白耗火力`,
+        'after the bomb neither I nor the partner can advance; it only spends our firepower'));
+    }
+  }
+
+  // 打下放上（主攻前期）/ 打上放下（助攻前期）：对手快到位（剩 10 张以内）后不再机械放牌权
+  if (early && fromOpp && !f.isBomb && !f.finishes) {
+    if (c.role === 'attack' && targetSeat === prev && c.shedsWeak && f.control === 'beatable' && combo.value <= 10) {
+      hits.push(hit('UP_DOWN', 'support', -T.upDownAttack, '主攻前期“打下放上”：借上家的牌顺掉自己的弱牌', 'attacker early on: shed a weak card on the lead of the previous player'));
+    } else if (c.role === 'attack' && targetSeat === next) {
+      hits.push(hit('UP_DOWN', 'support', -T.upDownAttack * 2 / 3, '主攻前期“打下放上”：压住下家，不让他轻松拿牌权', 'attacker early on: keep the next opponent off the lead'));
+    } else if (c.role === 'support' && targetSeat === next && f.control !== 'beatable') {
+      hits.push(hit('UP_DOWN', 'oppose', T.upDownSupport, '助攻前期“打上放下”：下家领牌时对家好顺牌，不必用大牌抢回来', 'supporter early on: no need to spend a top card to take the lead from the next opponent'));
+    }
+  }
+  return hits;
 }
 
 function typeCn(t: string): string {

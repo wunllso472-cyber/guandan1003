@@ -126,7 +126,8 @@ export class DecisionPanel {
     if (d.beliefs?.length) parts.push(`<h4>推断（只是倾向）</h4>${li(d.beliefs)}`);
     const pick = d.candidates.find((x) => x.label === d.chosen);
     if (pick) parts.push(`<h4>选这手的理由</h4>${li(pick.reasons)}`);
-    if (c?.book.length) parts.push(`<h4>命中的教材规则（${esc(c.stage)}）</h4>${li(c.book)}`);
+    if (c?.five?.length) parts.push(`<h4>这手牌的五问</h4><ul>${c.five.map((x) => `<li><b>${esc(x.q)}</b>${esc(x.a)}</li>`).join('')}</ul>`);
+    if (c?.book.length) parts.push(`<h4>命中的规则（${esc(c.stage)}）</h4>${li(c.book)}`);
     parts.push('<h4>候选对比（评分越小越好）</h4><table><tr><th>出法</th><th>评分</th><th>模拟</th><th>规则</th></tr>'
       + d.candidates.map((x) => `<tr class="${x.label === d.chosen ? 'dp-on' : ''}"><td>${esc(x.label)}</td><td>${x.score}</td><td>${x.mc ?? ''}</td><td>${esc(x.rules.join(' '))}</td></tr>`).join('')
       + '</table>');
