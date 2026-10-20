@@ -91,8 +91,10 @@ export const courseRules = { enabled: true };
  *   谁先出炸 0.4 → +0.001 ±0.004。
  *   打下放上 / 打上放下：两半各 0.3 时 −0.027 ±0.020；只留主攻一半（打下放上）+0.003 ±0.005。
  *   所以助攻一半（打上放下：放下家领牌）分量为 0，只作为提示理由，不影响排序。
+ *   打上放下的另一半（上家压了对家，助攻用外面压不住的牌压回去，不出扣一半）：upDownSupportPrev
+ *     1 → −0.003 ±0.010；2 → +0.058 ±0.035；2.5 → +0.062 ±0.037（换种子 +0.064 ±0.039）；3 → +0.070 ±0.041；4 → +0.005 ±0.050，采用 2.5。
  */
-export const courseTune = { lastDefensePass: 2, lastDefensePlay: 1, emptyBomb: 0.6, whoBombs: 0.4, bombFollowup: 1, upDownAttack: 0.3, upDownSupport: 0 };
+export const courseTune = { lastDefensePass: 2, lastDefensePlay: 1, emptyBomb: 0.6, whoBombs: 0.4, bombFollowup: 1, upDownAttack: 0.3, upDownSupport: 0, upDownSupportPrev: 2.5 };
 export const COURSE_RULE_IDS = new Set(['LAST_DEFENSE', 'EMPTY_BOMB', 'WHO_BOMBS', 'BOMB_FOLLOWUP', 'UP_DOWN']);
 
 export interface RuleHit {
@@ -267,6 +269,8 @@ function courseHits(c: RuleContext): RuleHit[] {
   const lastLine = fromOpp && targetSeat === next && active(next) && counts[next] <= 10;
   const calm = ![next, prev].some((s) => active(s) && counts[s] <= 10);
   const early = calm && tracker.seats[seat].plays.length < EARLY_PLAYS;
+  // 这一轮里上家压的是对家的牌（对家出过牌，上家接着压上去）
+  const prevOverPartner = fromOpp && targetSeat === prev && overtookPartner(tracker, prev, partner);
 
   if (!combo) {
     if (lastLine) {
@@ -277,6 +281,9 @@ function courseHits(c: RuleContext): RuleHit[] {
         'supporter early on: let the next opponent keep the lead so the partner can shed right behind them'));
     } else if (early && fromOpp && targetSeat === next && c.role === 'attack') {
       hits.push(hit('UP_DOWN', 'oppose', T.upDownAttack * 2 / 3, '主攻前期“打下放上”：别让下家轻松拿牌权', 'attacker early on: do not hand the lead to the next opponent cheaply'));
+    } else if (early && prevOverPartner && c.role === 'support') {
+      hits.push(hit('UP_DOWN', 'oppose', T.upDownSupportPrev / 2, '助攻前期“打上放下”：上家压了对家，放过去就是上家拿牌权',
+        'supporter early on: the previous opponent beat the partner; passing hands them the lead'));
     }
     return hits;
   }
@@ -320,9 +327,25 @@ function courseHits(c: RuleContext): RuleHit[] {
       hits.push(hit('UP_DOWN', 'support', -T.upDownAttack * 2 / 3, '主攻前期“打下放上”：压住下家，不让他轻松拿牌权', 'attacker early on: keep the next opponent off the lead'));
     } else if (c.role === 'support' && targetSeat === next && f.control !== 'beatable') {
       hits.push(hit('UP_DOWN', 'oppose', T.upDownSupport, '助攻前期“打上放下”：下家领牌时对家好顺牌，不必用大牌抢回来', 'supporter early on: no need to spend a top card to take the lead from the next opponent'));
+    } else if (c.role === 'support' && prevOverPartner && f.control !== 'beatable') {
+      hits.push(hit('UP_DOWN', 'support', -T.upDownSupportPrev, '助攻前期“打上放下”：上家压了对家，用外面压不住的牌压回去，不让上家拿牌权',
+        'supporter early on: the previous opponent beat the partner; take it back with a play nobody can beat'));
     }
   }
   return hits;
+}
+
+/** 这一轮里，上家最后这手是压在对家出的牌上面的 */
+function overtookPartner(tracker: CardTracker, prev: number, partner: number): boolean {
+  const h = tracker.history;
+  let last = h.length - 1;
+  while (last >= 0 && !h[last].combo) last--;
+  if (last < 0 || h[last].seat !== prev) return false;
+  for (let i = last - 1; i >= 0; i--) {
+    if (h[i].seat === partner && h[i].combo) return true;
+    if (h[i].lead) return false;
+  }
+  return false;
 }
 
 function typeCn(t: string): string {

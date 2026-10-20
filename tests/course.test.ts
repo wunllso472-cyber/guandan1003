@@ -120,6 +120,41 @@ describe('课程出牌规则', () => {
     expect(rule(late.options.find((o) => o.id === 'pass'), 'UP_DOWN')).toBeUndefined();
   });
 
+  it('打上放下：助攻前期上家压了对家，用外面压不住的牌压回去（线上局 mvgrvge9）', () => {
+    const used = new Set<number>();
+    // 黑桃 J 写成 S11（SJ 表示小王）
+    const hand = ids('BJ H5 HA DK DK HQ HQ S11 S11 CJ CJ H10 C10 D10 H8 C8 D8 H7 C7 D7 H4', used);
+    const tr = setup(5);
+    const play = (seat: number, spec: string, left: number) => {
+      const combo = parseCombos(ids(spec, used), 5)[0];
+      tr.apply({ type: 'play', seat, combo, left });
+      return combo;
+    };
+    play(0, 'D3', 21);
+    play(1, 'H6', 21);
+    play(2, 'D5', 21);
+    const target = play(3, 'SJ', 21);
+    const inp = { seat: 0, hand, level: 5, target, targetSeat: 3, counts: [21, 21, 21, 21], tracker: tr };
+    const adv = advise(inp);
+    expect(adv.power!.role).toBe('support');
+    const bj = adv.options.find((o) => o.label === '单张大王')!;
+    expect(rule(bj, 'UP_DOWN')?.effect).toBe('support');
+    expect(bj.reasons.join()).toContain('上家压了对家');
+    expect(rule(adv.options.find((o) => o.id === 'pass'), 'UP_DOWN')?.effect).toBe('oppose');
+    expect(rule(adv.options.find((o) => o.features?.isBomb), 'UP_DOWN')).toBeUndefined();
+    expect(adv.options[0].label).toBe('单张大王');
+
+    // 上家压的是下家（对家没出牌）时不触发
+    const tr2 = setup(5);
+    const used2 = new Set<number>(hand);
+    const t2 = parseCombos(ids('S6', used2), 5)[0];
+    tr2.apply({ type: 'play', seat: 1, combo: parseCombos(ids('C3', used2), 5)[0], left: 21 });
+    tr2.apply({ type: 'pass', seat: 2 });
+    tr2.apply({ type: 'play', seat: 3, combo: t2, left: 21 });
+    const adv2 = advise({ ...inp, target: t2, tracker: tr2 });
+    expect(rule(adv2.options.find((o) => o.label === '单张大王'), 'UP_DOWN')).toBeUndefined();
+  });
+
   it('开关关闭后不再触发', () => {
     const used = new Set<number>();
     const hand = ids('S3 S8 H8 C8 D5 C5 SK HK', used);
