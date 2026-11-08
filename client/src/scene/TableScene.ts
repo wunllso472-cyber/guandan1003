@@ -1,5 +1,5 @@
-import { Container, Graphics, Sprite, Text, Texture, Point, Ticker } from 'pixi.js';
-import { rankName } from '@shared/cards';
+import { Container, Graphics, Sprite, Text, Texture, Point, Ticker, Rectangle } from 'pixi.js';
+import { rankName, type Suit } from '@shared/cards';
 import { comboName, resolvePlay, type Combo } from '@shared/combo';
 import { partnerOf, teamOf, type GameEvent, type RoundResult } from '@shared/game';
 import { CardTracker } from '@shared/tracker';
@@ -9,10 +9,10 @@ import { mcStateFrom } from '@shared/mc';
 import { MC_MAXCARDS, decisionLog, mcCandidates, mcConfigFor, pickByMC, type DecisionLog } from '@shared/autoplay';
 import { ReviewLogger } from '../game/reviewLog';
 import { runMonteCarlo } from '../game/mcClient';
-import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable } from '../gfx/textures';
+import { CARD_W, CARD_H, FONT_UI, cardTexture, drawTable, suitIconTexture } from '../gfx/textures';
 import { tween, ease, wait } from '../gfx/tween';
 import { Button } from '../ui/Button';
-import { HandView } from './HandView';
+import { HandView, SF_SUITS } from './HandView';
 import { PlayerHud, PlayedView } from './Hud';
 import type { ClientEvent, GameClient } from '../game/types';
 import { Effects } from './Effects';
@@ -51,8 +51,10 @@ export class TableScene extends Container {
   private hintBtn: Button;
   private playBtn: Button;
   private sortBtn: Button;
-  private restoreBtn: Button;
-  private sfBtn: Button;
+  private smartBtn: Button;
+  /** 底部的“同花顺 ♠♥♣♦”栏 */
+  private sfBar = new Container();
+  private sfIcons = new Map<Suit, Sprite>();
   private autoBtn: Button;
   private menuBtn: Button;
   /** 暂停（只有单机有） */
@@ -163,16 +165,39 @@ export class TableScene extends Container {
     this.actionBar.addChild(this.passBtn, this.hintBtn, this.playBtn);
     this.actionBar.visible = false;
 
-    this.sortBtn = new Button('理牌', 'green', 104, 50, () => this.toast(this.hand.groupAction()));
-    this.restoreBtn = new Button('还原', 'gray', 104, 50, () => this.toast(this.hand.restoreAction()));
-    this.sfBtn = new Button('同花顺', 'gold', 104, 50, () => {
-      const msg = this.hand.nextStraightFlush();
-      if (msg) this.toast(msg);
+    // 理牌：有选中的牌时把它们锁定成一手；没选牌且理过牌时变成“恢复”，回到发牌时的牌面
+    this.sortBtn = new Button('理牌', 'blue', 120, 44, () => {
+      if (this.hand.selected.size) this.toast(this.hand.groupAction());
+      else if (this.hand.arranged) this.toast(this.hand.restoreAction());
+      else this.toast(this.hand.groupAction());
+    });
+    this.smartBtn = new Button('一键理', 'blue', 120, 44, () => this.toast(this.hand.smartAction()));
+    const sfLabel = new Text({ text: '同花顺', style: { fontFamily: FONT_UI, fontSize: 24, fontWeight: '900', fill: 0xffffff, stroke: { color: 0x0b3a22, width: 4 } } });
+    sfLabel.anchor.set(1, 0.5);
+    sfLabel.x = -86;
+    this.sfBar.addChild(sfLabel);
+    SF_SUITS.forEach((suit, i) => {
+      const icon = new Sprite(suitIconTexture(suit));
+      icon.anchor.set(0.5);
+      icon.scale.set(0.5);
+      icon.x = -60 + i * 50;
+      icon.eventMode = 'static';
+      icon.cursor = 'pointer';
+      icon.hitArea = new Rectangle(-44, -44, 88, 88);
+      icon.on('pointerdown', (e) => e.stopPropagation());
+      icon.on('pointertap', (e) => {
+        e.stopPropagation();
+        if (!this.hand.straightFlushesBySuit().get(suit)?.length) return;
+        sound.play('click');
+        this.toast(this.hand.groupStraightFlush(suit));
+      });
+      this.sfIcons.set(suit, icon);
+      this.sfBar.addChild(icon);
     });
     this.autoBtn = new Button('托管', 'blue', 96, 46, () => this.client.setAuto(true));
     this.menuBtn = new Button('菜单', 'gray', 96, 46, () => this.showMenu());
     if (client.setPaused) this.pauseBtn = new Button('暂停', 'gray', 96, 46, () => this.client.setPaused?.(true));
-    this.chatBtn = new Button('聊天', 'blue', 104, 50, () => this.chat.togglePanel());
+    this.chatBtn = new Button('聊天', 'green', 120, 44, () => this.chat.togglePanel());
 
     const autoBg = new Graphics().roundRect(-220, -34, 440, 68, 34).fill({ color: 0x000000, alpha: 0.55 });
     const autoText = new Text({ text: '托管中…', style: { fontFamily: FONT_UI, fontSize: 26, fontWeight: '900', fill: 0xffffff } });
@@ -201,7 +226,7 @@ export class TableScene extends Container {
     for (const h of this.huds) this.tableLayer.addChild(h);
     this.addChild(this.tableLayer);
     if (this.pauseBtn) this.addChild(this.pauseBtn);
-    this.addChild(this.sortBtn, this.restoreBtn, this.sfBtn, this.chatBtn, this.autoBtn, this.menuBtn, this.hand, this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
+    this.addChild(this.sortBtn, this.smartBtn, this.sfBar, this.chatBtn, this.autoBtn, this.menuBtn, this.hand, this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
 
     this.watchTag = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 24, fontWeight: '900', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 } } });
     this.watchTag.anchor.set(0.5);
@@ -267,16 +292,17 @@ export class TableScene extends Container {
     this.played[pos(2)].position.set(DW / 2, 190);
     this.played[pos(3)].position.set(PAD + 180, DH * 0.38);
 
-    // 一列 6 张时每张也要露出 40px 以上，角上的点数才不会被上一张盖住
-    this.hand.area = { left: PAD + 108, right: DW - PAD - 118, bottom: DH - 8, maxStack: 400 };
+    // 手牌下面留出一行按钮；一列 6 张时每张也要露出 38px，角上的点数才不会被上一张盖住
+    this.hand.area = { left: PAD + 108, right: DW - PAD - 20, bottom: DH - 58, maxStack: 352 };
     this.hand.layout(false);
     this.actionBar.position.set(DW / 2, DH - 444);
     this.returnBar.position.set(DW / 2, DH - 444);
     this.autoBar.position.set(DW / 2, DH - 444);
-    this.sortBtn.position.set(DW - PAD - 56, DH - 60);
-    this.restoreBtn.position.set(DW - PAD - 56, DH - 120);
-    this.sfBtn.position.set(DW - PAD - 56, DH - 180);
-    this.chatBtn.position.set(DW - PAD - 56, DH - 240);
+    // 手牌下面一行：中间“同花顺 ♠♥♣♦”，右边理牌/恢复、一键理、聊天
+    this.sfBar.position.set(DW / 2, DH - 28);
+    this.chatBtn.position.set(DW - PAD - 64, DH - 28);
+    this.smartBtn.position.set(DW - PAD - 194, DH - 28);
+    this.sortBtn.position.set(DW - PAD - 324, DH - 28);
     this.fx.layout(DW, DH);
     this.chat.layout(DW, DH);
     this.menuBtn.position.set(DW - PAD - 54, 34);
@@ -509,7 +535,8 @@ export class TableScene extends Container {
     this.hand.enabled = false;
     this.hand.setHand(g.hands[seat], g.level);
     this.sortBtn.visible = false;
-    this.restoreBtn.visible = false;
+    this.smartBtn.visible = false;
+    this.sfBar.visible = false;
     this.watchTag.text = `对家 ${this.client.players[seat].name} 的手牌（仅可查看）`;
     this.watchTag.visible = true;
     this.refreshButtons();
@@ -519,7 +546,8 @@ export class TableScene extends Container {
     this.watching = -1;
     this.hand.enabled = true;
     this.sortBtn.visible = true;
-    this.restoreBtn.visible = true;
+    this.smartBtn.visible = true;
+    this.sfBar.visible = true;
     this.watchTag.visible = false;
     this.refreshButtons();
   }
@@ -586,7 +614,15 @@ export class TableScene extends Container {
     this.decisionPanel.setVisible(auto);
     if (this.pauseBtn) this.pauseBtn.visible = (g.phase === 'play' || g.phase === 'return') && !this.client.isPaused?.();
     this.autoBtn.visible = !auto && this.watching < 0;
-    this.sfBtn.visible = this.watching < 0 && this.hand.straightFlushes().length > 0;
+    this.sortBtn.text = !this.hand.selected.size && this.hand.arranged ? '恢复' : '理牌';
+    // 有这个花色的同花顺时花色高亮可点，否则变暗
+    const sf = this.hand.straightFlushesBySuit();
+    for (const [suit, icon] of this.sfIcons) {
+      const on = !!sf.get(suit)?.length;
+      icon.alpha = on ? 1 : 0.28;
+      icon.tint = on ? 0xfff2a8 : 0xffffff;
+      icon.cursor = on ? 'pointer' : 'default';
+    }
     if (show) {
       this.passBtn.enabled = !!g.lastPlay;
       this.playBtn.enabled = this.hand.selected.size > 0;

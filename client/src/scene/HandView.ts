@@ -1,10 +1,11 @@
 import { Container, Sprite, FederatedPointerEvent, Point } from 'pixi.js';
-import { isWild } from '@shared/cards';
-import { CARD_W, CARD_H, cardTexture, wildBadgeTexture, shadowTexture, SHADOW_PAD } from '../gfx/textures';
+import { card, isWild, sortByValueDesc, type Suit } from '@shared/cards';
+import { resolvePlay, type Combo } from '@shared/combo';
+import { findAllPlays } from '@shared/finder';
+import { CARD_W, CARD_H, cardTexture, wildBadgeTexture, shadowTexture, lockTexture, comboTagTexture, SHADOW_PAD } from '../gfx/textures';
 import { sound } from '../audio/Sound';
 import { tween, ease, killTweenProps } from '../gfx/tween';
-import { arrangeSmart, groupSelected, removeCards } from '../game/arrange';
-import { findAllPlays } from '@shared/finder';
+import { arrangeByRank, arrangeSmart, removeCards } from '../game/arrange';
 
 const SELECT_TINT = 0xc4dcff;
 /** 选中的牌上抬的高度 */
@@ -14,13 +15,31 @@ const HOLD_MS = 380;
 /** 按住期间手指移动超过这个距离就算滑动选牌，不再进入拖动 */
 const HOLD_SLOP = 12;
 /** 手牌放大倍数 */
-export const HAND_SCALE = 1.14;
+export const HAND_SCALE = 1;
 const HW = CARD_W * HAND_SCALE;
 const HH = CARD_H * HAND_SCALE;
+
+export const SF_SUITS: Suit[] = ['S', 'H', 'C', 'D'];
+
+const CN_NUM = ['', '', '', '', '四', '五', '六', '七', '八', '九', '十'];
+
+/** 一列牌显示在底下的牌型标签：锁定的列（理牌组成的一手）显示任意牌型，自动理牌只标炸弹 */
+function tagFor(col: number[], level: number, locked: boolean, smart: boolean): string | null {
+  if (!locked && !smart) return null;
+  const c: Combo | undefined = resolvePlay(col, level, null)[0];
+  if (!c) return null;
+  if (c.type === 'bomb') return `${CN_NUM[c.cards.length] ?? c.cards.length}炸`;
+  if (c.type === 'straightflush') return '同花顺';
+  if (c.type === 'jokerbomb') return '天王炸';
+  if (!locked) return null;
+  return ({ single: '单张', pair: '对子', triple: '三张', fullhouse: '三带二', straight: '顺子', tube: '连对', plate: '钢板' } as Record<string, string>)[c.type] ?? null;
+}
 
 export class CardSprite extends Container {
   face: Sprite;
   badge: Sprite;
+  lock: Sprite;
+  tag: Sprite | null = null;
   /** 排版位置（未上抬时的 y） */
   baseY = 0;
   constructor(public id: number) {
@@ -38,10 +57,24 @@ export class CardSprite extends Container {
     this.badge.position.set(52, 20);
     this.badge.scale.set(0.9);
     this.badge.visible = false;
-    this.addChild(this.face, this.badge);
+    this.lock = new Sprite(lockTexture());
+    this.lock.anchor.set(0.5);
+    this.lock.position.set(72, 19);
+    this.lock.scale.set(0.5);
+    this.lock.visible = false;
+    this.addChild(this.face, this.badge, this.lock);
   }
   setWild(level: number) { this.badge.visible = isWild(this.id, level); }
   set selected(v: boolean) { this.face.tint = v ? SELECT_TINT : 0xffffff; }
+  setTag(text: string | null) {
+    if (this.tag) { this.tag.destroy(); this.tag = null; }
+    if (!text) return;
+    const t = comboTagTexture(text);
+    this.tag = new Sprite(t);
+    this.tag.scale.set(0.5);
+    this.tag.position.set(5, CARD_H - 7 - t.height * 0.5);
+    this.addChild(this.tag);
+  }
 }
 
 export interface HandArea { left: number; right: number; bottom: number; maxStack: number }
@@ -56,6 +89,13 @@ export class HandView extends Container {
   onChange?: () => void;
   /** 智能补全：没有选牌时点一张牌，返回要一起选中的牌（不需要时返回 null） */
   autoPick?: (id: number) => number[] | null;
+  /** 理牌锁定成一手的列：牌 → 组号 */
+  private lockGroup = new Map<number, number>();
+  private nextGroup = 1;
+  /** 未锁定的牌当前怎么排：发牌时按点数，一键理后按牌型 */
+  private mode: 'rank' | 'smart' = 'rank';
+  /** 理牌或一键理生效过（理牌按钮变成“恢复”） */
+  arranged = false;
 
   private swipe: { visited: Set<number>; to: boolean } | null = null;
   /** 上一次点击，用于识别双击；colWasFull 记录第一次点击前整列是否已全部选中 */
@@ -67,9 +107,7 @@ export class HandView extends Container {
   private drag: { col: number[]; startX: number; dx: number } | null = null;
   /** 最近一次排版的列位置 */
   private slots = { x0: 0, spacing: 0 };
-  /** 同花顺按钮轮到第几组 */
-  private sfIndex = 0;
-  private sfCache: number[][] | null = null;
+  private sfCache: { key: string; bySuit: Map<Suit, number[][]> } | null = null;
 
   constructor() {
     super();
@@ -85,6 +123,16 @@ export class HandView extends Container {
 
   hand(): number[] { return this.cols.flat(); }
 
+  private isLocked(col: number[]) { return col.length > 0 && this.lockGroup.has(col[0]); }
+
+  /** 锁定的列保持原样放在右边，其余牌按当前方式重新排 */
+  private rebuild(extra: number[] = []) {
+    const locked = this.cols.filter((c) => this.isLocked(c));
+    const loose = [...this.cols.filter((c) => !this.isLocked(c)).flat(), ...extra];
+    const arranged = this.mode === 'smart' ? arrangeSmart(loose, this.level) : arrangeByRank(loose, this.level);
+    this.cols = [...arranged, ...locked];
+  }
+
   setHand(hand: number[], level: number, deal = false) {
     this.level = level;
     for (const s of this.sprites.values()) s.destroy();
@@ -92,8 +140,10 @@ export class HandView extends Container {
     this.selected.clear();
     this.cancelPress();
     this.drag = null;
-    this.sfCache = null;
-    this.cols = arrangeSmart(hand, level);
+    this.lockGroup.clear();
+    this.mode = 'rank';
+    this.arranged = false;
+    this.cols = arrangeByRank(hand, level);
     for (const id of hand) this.makeSprite(id);
     if (deal) {
       const cx = (this.area.left + this.area.right) / 2 - HW / 2;
@@ -258,73 +308,121 @@ export class HandView extends Container {
     this.onChange?.();
   }
 
-  /** 理牌按钮：把选中的牌单独组成一列。 */
-  groupAction(): string {
-    if (!this.selected.size) return '先选中要放在一起的牌，再点理牌';
-    this.cols = groupSelected(this.cols, [...this.selected], this.level);
-    this.clearSelection();
-    this.layout(true);
-    return '已将选中的牌放在一起';
+  /** 把这些牌锁定成一手，放在最右边 */
+  private lockCards(ids: number[]) {
+    const g = this.nextGroup++;
+    const set = new Set(ids);
+    // 一列里按规则引擎识别出的顺序摆（逢人配在它替代的位置）；三带二对子在上、三张在下
+    const combo = resolvePlay(ids, this.level, null)[0];
+    let order = combo ? [...combo.cards] : sortByValueDesc(ids, this.level).reverse();
+    if (combo?.type === 'fullhouse') order = [...order.slice(3), ...order.slice(0, 3)];
+    for (const id of ids) this.lockGroup.set(id, g);
+    this.cols = [...this.cols.map((c) => c.filter((id) => !set.has(id))).filter((c) => c.length), order];
+    this.normalizeLocks();
   }
 
-  /** 还原按钮：撤销手动理牌，恢复自动理牌。 */
-  restoreAction(): string {
-    this.cols = arrangeSmart(this.hand(), this.level);
-    this.clearSelection();
-    this.layout(true);
-    return '已还原为自动理牌';
-  }
-
-  /** 手里的同花顺：用逢人配少的在前，同样的大的在前 */
-  straightFlushes(): number[][] {
-    if (!this.sfCache) {
-      const wilds = (ids: number[]) => ids.filter((id) => isWild(id, this.level)).length;
-      this.sfCache = findAllPlays(this.hand(), this.level)
-        .filter((c) => c.type === 'straightflush')
-        .sort((a, b) => wilds(a.cards) - wilds(b.cards) || b.value - a.value)
-        .map((c) => c.cards);
-      this.sfIndex = 0;
+  /** 锁定列被拆开（出牌、被选去组别的牌）后剩下的牌不再锁定，并回到普通牌里重排 */
+  private normalizeLocks() {
+    let changed = false;
+    for (const col of this.cols) {
+      const gids = new Set(col.map((id) => this.lockGroup.get(id)));
+      if (gids.size === 1 && !gids.has(undefined)) continue;
+      for (const id of col) if (this.lockGroup.delete(id)) changed = true;
     }
-    return this.sfCache;
+    if (changed) this.rebuild();
   }
 
-  /** 同花顺按钮：每点一次选中下一组同花顺，返回提示文字 */
-  nextStraightFlush(): string {
-    const list = this.straightFlushes();
-    if (!list.length) return '手里没有同花顺';
-    const i = this.sfIndex % list.length;
-    this.sfIndex++;
-    this.select(list[i]);
+  /** 理牌按钮：把选中的牌锁定成一手 */
+  groupAction(): string {
+    if (!this.selected.size) return '先选中要组成一手的牌，再点理牌';
+    const ids = [...this.selected];
+    this.lockCards(ids);
+    this.arranged = true;
+    this.clearSelection();
+    this.layout(true);
+    const tag = tagFor(ids, this.level, true, false);
+    return tag ? `已理成一手：${tag}` : '已将选中的牌放在一起';
+  }
+
+  /** 一键理：未锁定的牌按牌型自动整理（炸弹在左并标出几炸），锁定的列不动 */
+  smartAction(): string {
+    this.mode = 'smart';
+    this.rebuild();
+    this.arranged = true;
+    this.clearSelection();
+    this.layout(true);
+    return '已一键理牌';
+  }
+
+  /** 恢复：去掉所有锁定，回到发牌时的按点数排列 */
+  restoreAction(): string {
+    this.lockGroup.clear();
+    this.mode = 'rank';
+    this.rebuild();
+    this.arranged = false;
+    this.clearSelection();
+    this.layout(true);
+    return '已恢复';
+  }
+
+  /** 未锁定的牌里每个花色能组成的同花顺：用逢人配少的在前，同样的大的在前 */
+  straightFlushesBySuit(): Map<Suit, number[][]> {
+    const loose = this.cols.filter((c) => !this.isLocked(c)).flat();
+    const key = [...loose].sort((a, b) => a - b).join(',') + '|' + this.level;
+    if (this.sfCache?.key === key) return this.sfCache.bySuit;
+    const wilds = (ids: number[]) => ids.filter((id) => isWild(id, this.level)).length;
+    const bySuit = new Map<Suit, number[][]>();
+    const list = findAllPlays(loose, this.level)
+      .filter((c) => c.type === 'straightflush')
+      .sort((a, b) => wilds(a.cards) - wilds(b.cards) || b.value - a.value);
+    for (const c of list) {
+      const nat = c.cards.find((id) => !isWild(id, this.level)) ?? c.cards[0];
+      const suit = card(nat).suit;
+      if (!bySuit.has(suit)) bySuit.set(suit, []);
+      bySuit.get(suit)!.push(c.cards);
+    }
+    this.sfCache = { key, bySuit };
+    return bySuit;
+  }
+
+  /** 点花色：把这个花色的一组同花顺锁定成一手 */
+  groupStraightFlush(suit: Suit): string {
+    const list = this.straightFlushesBySuit().get(suit);
+    if (!list?.length) return '这个花色没有同花顺';
+    this.lockCards(list[0]);
+    this.arranged = true;
+    this.clearSelection();
+    this.layout(true);
     sound.play('select');
-    return list.length > 1 ? `同花顺 ${i + 1}/${list.length}` : '';
+    return '已组成同花顺';
   }
 
   /** 移除牌，返回它们移除前的全局位置（用于出牌飞行动画）。 */
   removeCards(ids: number[]): Map<number, Point> {
     const pos = new Map<number, Point>();
+    this.cancelPress();
+    this.drag = null;
     for (const id of ids) {
       const s = this.sprites.get(id);
       if (!s) continue;
       pos.set(id, s.getGlobalPosition(new Point()));
-      this.cancelPress();
-      this.drag = null;
       s.destroy();
       this.sprites.delete(id);
       this.selected.delete(id);
     }
-    this.sfCache = null;
     this.cols = removeCards(this.cols, ids);
+    for (const id of ids) this.lockGroup.delete(id);
+    this.normalizeLocks();
     this.layout(true);
     this.onChange?.();
     return pos;
   }
 
-  /** 收到贡牌/还贡：按牌型模式时整手重新理牌，否则插到同点数的列；新牌高亮选中 */
+  /** 收到贡牌/还贡：放进未锁定的牌里重新排；新牌高亮选中 */
   addCards(ids: number[]) {
     this.cancelPress();
     this.drag = null;
-    this.sfCache = null;
-    this.cols = arrangeSmart([...this.hand(), ...ids], this.level);
+    this.rebuild(ids);
     for (const id of ids) {
       const s = this.makeSprite(id);
       s.position.set((this.area.left + this.area.right) / 2, this.area.bottom - 400);
@@ -351,9 +449,13 @@ export class HandView extends Container {
     const maxLen = Math.max(...this.cols.map((c) => c.length));
     const vo = maxLen > 1 ? Math.min(46, (maxStack - HH) / (maxLen - 1)) : 0;
     this.cols.forEach((col, ci) => {
+      const locked = this.isLocked(col);
+      const tag = tagFor(col, this.level, locked, this.mode === 'smart');
       col.forEach((id, i) => {
         const s = this.sprites.get(id);
         if (!s) return;
+        s.lock.visible = locked;
+        s.setTag(i === col.length - 1 ? tag : null);
         const x = x0 + ci * spacing;
         s.baseY = bottom - HH - (col.length - 1 - i) * vo;
         const y = s.baseY - (this.selected.has(id) ? LIFT : 0);

@@ -449,3 +449,67 @@ export function backTexture(): Texture {
 export function wildBadgeTexture(): Texture {
   return (wildBadge ??= Texture.from(drawBadge('配', '#ffbf2e')));
 }
+
+let lockTex: Texture | null = null;
+/** 理牌锁定成一手的列，每张牌右上角的小锁（贴图是 RES 倍大小，使用时缩放 1/RES） */
+export function lockTexture(): Texture {
+  return (lockTex ??= Texture.from((() => {
+    const W = 16, H = 18;
+    const { c, g } = canvas(W, H);
+    g.strokeStyle = '#8fa9c4';
+    g.fillStyle = '#b9cde0';
+    g.lineWidth = 2.2;
+    g.beginPath();
+    g.arc(W / 2, 7, 4.2, Math.PI, 0);
+    g.lineTo(W / 2 + 4.2, 9);
+    g.moveTo(W / 2 - 4.2, 9);
+    g.lineTo(W / 2 - 4.2, 7);
+    g.stroke();
+    roundRect(g, 2, 8, W - 4, H - 9, 2.5);
+    g.fill();
+    g.fillStyle = '#ffffff';
+    g.beginPath(); g.arc(W / 2, 12.5, 1.6, 0, Math.PI * 2); g.fill();
+    return c;
+  })()));
+}
+
+const tagTex = new Map<string, Texture>();
+/** 一列底部的竖排牌型标签（八炸、三带二、同花顺…；贴图是 RES 倍大小，使用时缩放 1/RES） */
+export function comboTagTexture(text: string): Texture {
+  let t = tagTex.get(text);
+  if (t) return t;
+  const chars = [...text];
+  const W = 22, CH = 18, H = chars.length * CH + 8;
+  const { c, g } = canvas(W, H);
+  roundRect(g, 1, 1, W - 2, H - 2, 4);
+  g.fillStyle = '#eef8fb';
+  g.fill();
+  g.lineWidth = 1.6;
+  g.strokeStyle = '#2f8fb0';
+  g.stroke();
+  g.fillStyle = '#1f7898';
+  g.font = `900 16px ${FONT_UI}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  chars.forEach((ch, i) => g.fillText(ch, W / 2, 4 + CH * i + CH / 2 + 1));
+  t = Texture.from(c);
+  tagTex.set(text, t);
+  return t;
+}
+
+const suitIcons = new Map<Suit, Texture>();
+/** 底部同花顺栏的白色花色图标（贴图是 RES 倍大小，使用时缩放 1/RES） */
+export function suitIconTexture(suit: Suit): Texture {
+  let t = suitIcons.get(suit);
+  if (t) return t;
+  const S = 40;
+  const { c, g } = canvas(S, S);
+  g.fillStyle = '#ffffff';
+  g.shadowColor = 'rgba(0,0,0,0.35)';
+  g.shadowBlur = 3;
+  g.shadowOffsetY = 1.5;
+  drawSuit(g, suit, S / 2, S / 2, 34);
+  t = Texture.from(c);
+  suitIcons.set(suit, t);
+  return t;
+}
