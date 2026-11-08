@@ -255,16 +255,17 @@ export class TableScene extends Container {
     this.huds[pos(1)].position.set(DW - PAD - 56, DH * 0.38);
     this.huds[pos(2)].position.set(DW / 2 - 200, 66);
     this.huds[pos(3)].position.set(PAD + 56, DH * 0.38);
-    this.played[pos(0)].position.set(DW / 2, DH - 392);
+    this.played[pos(0)].position.set(DW / 2, DH - 418);
     this.played[pos(1)].position.set(DW - PAD - 180, DH * 0.38);
     this.played[pos(2)].position.set(DW / 2, 190);
     this.played[pos(3)].position.set(PAD + 180, DH * 0.38);
 
-    this.hand.area = { left: PAD + 108, right: DW - PAD - 118, bottom: DH - 8, maxStack: 332 };
+    // 5 张一列时每张要露出约 46px，角上的点数才不会被上一张盖住
+    this.hand.area = { left: PAD + 108, right: DW - PAD - 118, bottom: DH - 8, maxStack: 368 };
     this.hand.layout(false);
-    this.actionBar.position.set(DW / 2, DH - 392);
-    this.returnBar.position.set(DW / 2, DH - 392);
-    this.autoBar.position.set(DW / 2, DH - 392);
+    this.actionBar.position.set(DW / 2, DH - 418);
+    this.returnBar.position.set(DW / 2, DH - 418);
+    this.autoBar.position.set(DW / 2, DH - 418);
     this.sortBtn.position.set(DW - PAD - 56, DH - 60);
     this.chatBtn.position.set(DW - PAD - 56, DH - 124);
     this.fx.layout(DW, DH);
@@ -272,9 +273,9 @@ export class TableScene extends Container {
     this.menuBtn.position.set(DW - PAD - 54, 34);
     this.autoBtn.position.set(DW - PAD - 160, 34);
     this.pauseBtn?.position.set(DW - PAD - 266, 34);
-    this.toastBox.position.set(DW / 2, DH - 470);
-    this.watchTag.position.set(DW / 2, DH - 380);
-    this.reasonText.position.set(DW / 2, DH - 432);
+    this.toastBox.position.set(DW / 2, DH - 496);
+    this.watchTag.position.set(DW / 2, DH - 406);
+    this.reasonText.position.set(DW / 2, DH - 458);
     this.overlay.position.set(0, 0);
     for (const c of this.overlay.children) (c as any).relayout?.(DW, DH);
   }
