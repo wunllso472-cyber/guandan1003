@@ -139,6 +139,9 @@ function drawFace(id: number): HTMLCanvasElement {
     g.textAlign = 'center';
     g.textBaseline = 'top';
     'JOKER'.split('').forEach((ch, i) => g.fillText(ch, 15, 8 + i * 17));
+    // 手牌叠放时只露出顶上一条：在 J 右边写上大/小，叠着也能分清大小王
+    g.font = `900 22px ${FONT_UI}`;
+    g.fillText(big ? '大' : '小', 45, 7);
     // 中央：皇冠 + 星形
     const cx = CARD_W / 2 + 10, cy = CARD_H / 2 + 14;
     const grad = g.createRadialGradient(cx, cy, 4, cx, cy, 44);
@@ -167,6 +170,8 @@ function drawFace(id: number): HTMLCanvasElement {
     g.fillText('10', 0, 0);
     g.restore();
   } else g.fillText(label, 21, 5);
+  // 手牌叠放时只露出顶上一条，花色放在点数右边才看得到；左侧点数下方仍保留一个
+  drawSuit(g, card.suit, 49, 20, 22);
   drawSuit(g, card.suit, 21, 56, 24);
 
   if (card.rank >= 11 && card.rank <= 13) {
@@ -189,7 +194,7 @@ function drawFace(id: number): HTMLCanvasElement {
 
 /** 人头牌：双层金框 + 菱格底纹 + 皇冠 + 渐变大字母 */
 function drawCourt(g: CanvasRenderingContext2D, rank: number, suit: Suit, color: string, label: string) {
-  const x = 38, y = 28, w = CARD_W - 46, h = CARD_H - 38;
+  const x = 38, y = 36, w = CARD_W - 46, h = CARD_H - 44;
   const theme = rank === 13 ? ['#c9302c', '#7a1410'] : rank === 12 ? ['#8a4cc4', '#4a1f75'] : ['#2e6db5', '#163c70'];
   const bg = g.createLinearGradient(0, y, 0, y + h);
   bg.addColorStop(0, '#fff8e4');

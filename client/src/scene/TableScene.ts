@@ -51,6 +51,8 @@ export class TableScene extends Container {
   private hintBtn: Button;
   private playBtn: Button;
   private sortBtn: Button;
+  private restoreBtn: Button;
+  private sfBtn: Button;
   private autoBtn: Button;
   private menuBtn: Button;
   /** 暂停（只有单机有） */
@@ -161,7 +163,12 @@ export class TableScene extends Container {
     this.actionBar.addChild(this.passBtn, this.hintBtn, this.playBtn);
     this.actionBar.visible = false;
 
-    this.sortBtn = new Button('理牌', 'green', 104, 50, () => this.toast(this.hand.sortAction()));
+    this.sortBtn = new Button('理牌', 'green', 104, 50, () => this.toast(this.hand.groupAction()));
+    this.restoreBtn = new Button('还原', 'gray', 104, 50, () => this.toast(this.hand.restoreAction()));
+    this.sfBtn = new Button('同花顺', 'gold', 104, 50, () => {
+      const msg = this.hand.nextStraightFlush();
+      if (msg) this.toast(msg);
+    });
     this.autoBtn = new Button('托管', 'blue', 96, 46, () => this.client.setAuto(true));
     this.menuBtn = new Button('菜单', 'gray', 96, 46, () => this.showMenu());
     if (client.setPaused) this.pauseBtn = new Button('暂停', 'gray', 96, 46, () => this.client.setPaused?.(true));
@@ -194,7 +201,7 @@ export class TableScene extends Container {
     for (const h of this.huds) this.tableLayer.addChild(h);
     this.addChild(this.tableLayer);
     if (this.pauseBtn) this.addChild(this.pauseBtn);
-    this.addChild(this.sortBtn, this.chatBtn, this.autoBtn, this.menuBtn, this.hand, this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
+    this.addChild(this.sortBtn, this.restoreBtn, this.sfBtn, this.chatBtn, this.autoBtn, this.menuBtn, this.hand, this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
 
     this.watchTag = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 24, fontWeight: '900', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 } } });
     this.watchTag.anchor.set(0.5);
@@ -267,7 +274,9 @@ export class TableScene extends Container {
     this.returnBar.position.set(DW / 2, DH - 444);
     this.autoBar.position.set(DW / 2, DH - 444);
     this.sortBtn.position.set(DW - PAD - 56, DH - 60);
-    this.chatBtn.position.set(DW - PAD - 56, DH - 124);
+    this.restoreBtn.position.set(DW - PAD - 56, DH - 120);
+    this.sfBtn.position.set(DW - PAD - 56, DH - 180);
+    this.chatBtn.position.set(DW - PAD - 56, DH - 240);
     this.fx.layout(DW, DH);
     this.chat.layout(DW, DH);
     this.menuBtn.position.set(DW - PAD - 54, 34);
@@ -500,6 +509,7 @@ export class TableScene extends Container {
     this.hand.enabled = false;
     this.hand.setHand(g.hands[seat], g.level);
     this.sortBtn.visible = false;
+    this.restoreBtn.visible = false;
     this.watchTag.text = `对家 ${this.client.players[seat].name} 的手牌（仅可查看）`;
     this.watchTag.visible = true;
     this.refreshButtons();
@@ -509,6 +519,7 @@ export class TableScene extends Container {
     this.watching = -1;
     this.hand.enabled = true;
     this.sortBtn.visible = true;
+    this.restoreBtn.visible = true;
     this.watchTag.visible = false;
     this.refreshButtons();
   }
@@ -575,6 +586,7 @@ export class TableScene extends Container {
     this.decisionPanel.setVisible(auto);
     if (this.pauseBtn) this.pauseBtn.visible = (g.phase === 'play' || g.phase === 'return') && !this.client.isPaused?.();
     this.autoBtn.visible = !auto && this.watching < 0;
+    this.sfBtn.visible = this.watching < 0 && this.hand.straightFlushes().length > 0;
     if (show) {
       this.passBtn.enabled = !!g.lastPlay;
       this.playBtn.enabled = this.hand.selected.size > 0;

@@ -3,9 +3,16 @@ import { isWild } from '@shared/cards';
 import { CARD_W, CARD_H, cardTexture, wildBadgeTexture, shadowTexture, SHADOW_PAD } from '../gfx/textures';
 import { sound } from '../audio/Sound';
 import { tween, ease, killTweenProps } from '../gfx/tween';
-import { arrangeByRank, arrangeSmart, groupSelected, insertCards, removeCards, type ArrangeMode } from '../game/arrange';
+import { arrangeSmart, groupSelected, removeCards } from '../game/arrange';
+import { findAllPlays } from '@shared/finder';
 
-const SELECT_TINT = 0x9ec2ff;
+const SELECT_TINT = 0xc4dcff;
+/** 选中的牌上抬的高度 */
+const LIFT = 20;
+/** 按住多久进入拖动整列 */
+const HOLD_MS = 380;
+/** 按住期间手指移动超过这个距离就算滑动选牌，不再进入拖动 */
+const HOLD_SLOP = 12;
 /** 手牌放大倍数 */
 export const HAND_SCALE = 1.14;
 const HW = CARD_W * HAND_SCALE;
@@ -14,6 +21,8 @@ const HH = CARD_H * HAND_SCALE;
 export class CardSprite extends Container {
   face: Sprite;
   badge: Sprite;
+  /** 排版位置（未上抬时的 y） */
+  baseY = 0;
   constructor(public id: number) {
     super();
     const shadow = new Sprite(shadowTexture());
@@ -39,7 +48,6 @@ export interface HandArea { left: number; right: number; bottom: number; maxStac
 
 export class HandView extends Container {
   cols: number[][] = [];
-  mode: ArrangeMode = 'smart';
   selected = new Set<number>();
   sprites = new Map<number, CardSprite>();
   level = 2;
@@ -53,6 +61,15 @@ export class HandView extends Container {
   /** 上一次点击，用于识别双击；colWasFull 记录第一次点击前整列是否已全部选中 */
   private lastTap: { id: number; t: number; colWasFull: boolean } | null = null;
   private static readonly DOUBLE_TAP_MS = 320;
+  /** 按住一张牌：到时间没移动就进入拖动整列；snapshot 是按下前的选择，进入拖动时恢复 */
+  private press: { id: number; x: number; y: number; snapshot: Set<number>; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** 正在拖动的列 */
+  private drag: { col: number[]; startX: number; dx: number } | null = null;
+  /** 最近一次排版的列位置 */
+  private slots = { x0: 0, spacing: 0 };
+  /** 同花顺按钮轮到第几组 */
+  private sfIndex = 0;
+  private sfCache: number[][] | null = null;
 
   constructor() {
     super();
@@ -62,8 +79,8 @@ export class HandView extends Container {
   /** 由场景在舞台上注册全局移动/抬起事件 */
   bindStage(stage: Container) {
     stage.on('globalpointermove', (e: FederatedPointerEvent) => this.onMove(e));
-    stage.on('pointerup', () => (this.swipe = null));
-    stage.on('pointerupoutside', () => (this.swipe = null));
+    stage.on('pointerup', () => this.onUp());
+    stage.on('pointerupoutside', () => this.onUp());
   }
 
   hand(): number[] { return this.cols.flat(); }
@@ -73,7 +90,10 @@ export class HandView extends Container {
     for (const s of this.sprites.values()) s.destroy();
     this.sprites.clear();
     this.selected.clear();
-    this.cols = this.mode === 'smart' ? arrangeSmart(hand, level) : arrangeByRank(hand, level);
+    this.cancelPress();
+    this.drag = null;
+    this.sfCache = null;
+    this.cols = arrangeSmart(hand, level);
     for (const id of hand) this.makeSprite(id);
     if (deal) {
       const cx = (this.area.left + this.area.right) / 2 - HW / 2;
@@ -99,6 +119,9 @@ export class HandView extends Container {
     s.on('pointerdown', (e: FederatedPointerEvent) => {
       e.stopPropagation();
       if (!this.enabled) return;
+      const snapshot = new Set(this.selected);
+      this.cancelPress();
+      this.press = { id, x: e.global.x, y: e.global.y, snapshot, timer: setTimeout(() => this.startDrag(), HOLD_MS) };
       this.onTap(id);
     });
     this.sprites.set(id, s);
@@ -142,6 +165,16 @@ export class HandView extends Container {
   }
 
   private onMove(e: FederatedPointerEvent) {
+    if (this.drag) {
+      this.drag.dx = this.toLocal(e.global, undefined, new Point()).x - this.drag.startX;
+      const ci = this.cols.indexOf(this.drag.col);
+      for (const id of this.drag.col) {
+        const s = this.sprites.get(id);
+        if (s) { killTweenProps(s, ['x']); s.x = this.slots.x0 + ci * this.slots.spacing + this.drag.dx; }
+      }
+      return;
+    }
+    if (this.press && Math.hypot(e.global.x - this.press.x, e.global.y - this.press.y) > HOLD_SLOP) this.cancelPress();
     if (!this.swipe) return;
     const p = this.toLocal(e.global, undefined, new Point());
     const id = this.hit(p.x, p.y);
@@ -152,12 +185,56 @@ export class HandView extends Container {
     this.onChange?.();
   }
 
-  /** 找到点下最上层的牌 */
+  private cancelPress() {
+    if (this.press) clearTimeout(this.press.timer);
+    this.press = null;
+  }
+
+  /** 按住不动：撤销这次点击造成的选牌，整列跟着手指左右移动 */
+  private startDrag() {
+    const p = this.press;
+    this.press = null;
+    if (!p || !this.enabled) return;
+    const col = this.colOf(p.id);
+    if (!col) return;
+    for (const id of [...this.selected]) if (!p.snapshot.has(id)) this.setSelected(id, false);
+    for (const id of p.snapshot) if (!this.selected.has(id)) this.setSelected(id, true);
+    this.swipe = null;
+    this.lastTap = null;
+    const local = this.toLocal(new Point(p.x, p.y), undefined, new Point());
+    this.drag = { col, startX: local.x, dx: 0 };
+    for (const id of col) {
+      const s = this.sprites.get(id);
+      if (!s) continue;
+      s.zIndex += 1000;
+      s.alpha = 0.85;
+      tween(s, { y: s.baseY - LIFT - 10 }, 120);
+    }
+    sound.play('select');
+    this.onChange?.();
+  }
+
+  private onUp() {
+    this.swipe = null;
+    this.cancelPress();
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    const from = this.cols.indexOf(d.col);
+    if (from >= 0 && this.slots.spacing > 0) {
+      const to = Math.max(0, Math.min(this.cols.length - 1, Math.round(from + d.dx / this.slots.spacing)));
+      this.cols.splice(from, 1);
+      this.cols.splice(to, 0, d.col);
+    }
+    for (const id of d.col) { const s = this.sprites.get(id); if (s) s.alpha = 1; }
+    this.layout(true);
+  }
+
+  /** 找到点下最上层的牌（按当前位置算，上抬的牌按上抬后的位置） */
   private hit(x: number, y: number): number | null {
     const list = [...this.sprites.values()].sort((a, b) => b.zIndex - a.zIndex);
     for (const s of list) {
-      const by = s.y; // 选中不改变位置
-      if (x >= s.x && x <= s.x + HW && y >= by && y <= by + HH) return s.id;
+      if (x >= s.x && x <= s.x + HW && y >= s.y && y <= s.y + HH) return s.id;
     }
     return null;
   }
@@ -165,7 +242,9 @@ export class HandView extends Container {
   private setSelected(id: number, v: boolean) {
     if (v) this.selected.add(id); else this.selected.delete(id);
     const s = this.sprites.get(id);
-    if (s) s.selected = v;
+    if (!s) return;
+    s.selected = v;
+    if (!this.drag?.col.includes(id)) tween(s, { y: s.baseY - (v ? LIFT : 0) }, 110);
   }
 
   clearSelection() {
@@ -179,19 +258,45 @@ export class HandView extends Container {
     this.onChange?.();
   }
 
-  /** 理牌按钮：有选中的牌则单独成列，否则在按点数/智能理牌间切换。 */
-  sortAction(): string {
-    const hand = this.hand();
-    if (this.selected.size) {
-      this.cols = groupSelected(this.cols, [...this.selected], this.level);
-      this.clearSelection();
-      this.layout(true);
-      return '已将选中的牌放在一起';
-    }
-    this.mode = this.mode === 'rank' ? 'smart' : 'rank';
-    this.cols = this.mode === 'smart' ? arrangeSmart(hand, this.level) : arrangeByRank(hand, this.level);
+  /** 理牌按钮：把选中的牌单独组成一列。 */
+  groupAction(): string {
+    if (!this.selected.size) return '先选中要放在一起的牌，再点理牌';
+    this.cols = groupSelected(this.cols, [...this.selected], this.level);
+    this.clearSelection();
     this.layout(true);
-    return this.mode === 'smart' ? '已按牌型理牌' : '已按点数排列';
+    return '已将选中的牌放在一起';
+  }
+
+  /** 还原按钮：撤销手动理牌，恢复自动理牌。 */
+  restoreAction(): string {
+    this.cols = arrangeSmart(this.hand(), this.level);
+    this.clearSelection();
+    this.layout(true);
+    return '已还原为自动理牌';
+  }
+
+  /** 手里的同花顺：用逢人配少的在前，同样的大的在前 */
+  straightFlushes(): number[][] {
+    if (!this.sfCache) {
+      const wilds = (ids: number[]) => ids.filter((id) => isWild(id, this.level)).length;
+      this.sfCache = findAllPlays(this.hand(), this.level)
+        .filter((c) => c.type === 'straightflush')
+        .sort((a, b) => wilds(a.cards) - wilds(b.cards) || b.value - a.value)
+        .map((c) => c.cards);
+      this.sfIndex = 0;
+    }
+    return this.sfCache;
+  }
+
+  /** 同花顺按钮：每点一次选中下一组同花顺，返回提示文字 */
+  nextStraightFlush(): string {
+    const list = this.straightFlushes();
+    if (!list.length) return '手里没有同花顺';
+    const i = this.sfIndex % list.length;
+    this.sfIndex++;
+    this.select(list[i]);
+    sound.play('select');
+    return list.length > 1 ? `同花顺 ${i + 1}/${list.length}` : '';
   }
 
   /** 移除牌，返回它们移除前的全局位置（用于出牌飞行动画）。 */
@@ -201,10 +306,13 @@ export class HandView extends Container {
       const s = this.sprites.get(id);
       if (!s) continue;
       pos.set(id, s.getGlobalPosition(new Point()));
+      this.cancelPress();
+      this.drag = null;
       s.destroy();
       this.sprites.delete(id);
       this.selected.delete(id);
     }
+    this.sfCache = null;
     this.cols = removeCards(this.cols, ids);
     this.layout(true);
     this.onChange?.();
@@ -213,9 +321,10 @@ export class HandView extends Container {
 
   /** 收到贡牌/还贡：按牌型模式时整手重新理牌，否则插到同点数的列；新牌高亮选中 */
   addCards(ids: number[]) {
-    this.cols = this.mode === 'smart'
-      ? arrangeSmart([...this.hand(), ...ids], this.level)
-      : insertCards(this.cols, ids, this.level);
+    this.cancelPress();
+    this.drag = null;
+    this.sfCache = null;
+    this.cols = arrangeSmart([...this.hand(), ...ids], this.level);
     for (const id of ids) {
       const s = this.makeSprite(id);
       s.position.set((this.area.left + this.area.right) / 2, this.area.bottom - 400);
@@ -238,6 +347,7 @@ export class HandView extends Container {
     const spacing = C > 1 ? Math.min(HW * 0.66, (avail - HW) / (C - 1)) : 0;
     const total = spacing * (C - 1) + HW;
     const x0 = left + (avail - total) / 2;
+    this.slots = { x0, spacing };
     const maxLen = Math.max(...this.cols.map((c) => c.length));
     const vo = maxLen > 1 ? Math.min(46, (maxStack - HH) / (maxLen - 1)) : 0;
     this.cols.forEach((col, ci) => {
@@ -245,7 +355,8 @@ export class HandView extends Container {
         const s = this.sprites.get(id);
         if (!s) return;
         const x = x0 + ci * spacing;
-        const y = bottom - HH - (col.length - 1 - i) * vo;
+        s.baseY = bottom - HH - (col.length - 1 - i) * vo;
+        const y = s.baseY - (this.selected.has(id) ? LIFT : 0);
         s.zIndex = ci * 20 + i;
         if (animate) tween(s, { x, y }, 220);
         else {
