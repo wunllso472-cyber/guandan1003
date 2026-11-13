@@ -57,6 +57,10 @@ function print(r: RoundRecord) {
     out.push(...decision(`还没执行的托管决策${c ? `（${c.trick}；我的手牌 ${c.hand.cards}）` : ''}`, r.pending));
   }
   if (r.result) out.push(`结果：名次 ${r.result.order.map(name).join(' > ')}，${r.result.winTeam === r.me % 2 ? '我方' : '对方'}升 ${r.result.up} 级${r.result.note ? '，' + r.result.note : ''}，级数 ${r.result.levelsAfter.join(' : ')}`);
+  if (r.train) {
+    const t = r.train;
+    out.push(`记牌训练：段位 ${t.tier}，快问 ${t.asked} 题答对 ${t.correct} 题（超时 ${t.timeouts}），记牌器${t.panelOpen ? '开' : '关'}，快问${t.quizOn ? '开' : '关'}`);
+  }
   console.log(out.join('\n') + '\n');
 }
 

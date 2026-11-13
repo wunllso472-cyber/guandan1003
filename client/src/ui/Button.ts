@@ -50,6 +50,13 @@ export class Button extends Container {
 
   setOnTap(fn: () => void) { this.onTap = fn; }
 
+  /** 换配色（比如开关按钮的开/关状态） */
+  setStyle(s: ButtonStyle) {
+    if (s === this.styleName) return;
+    this.styleName = s;
+    this.draw();
+  }
+
   get enabled() { return this._enabled; }
   set enabled(v: boolean) {
     this._enabled = v;

@@ -54,6 +54,8 @@ export interface RoundRecord {
   upd?: string;
   /** 已给出但还没执行的托管决策（含局面依据，即决策面板上的最新一条） */
   pending?: DecisionLog;
+  /** 记牌训练：段位、本局快问题数/答对/超时、记牌器和快问是否开着 */
+  train?: { tier: number; asked: number; correct: number; timeouts: number; panelOpen: boolean; quizOn: boolean };
 }
 
 const STORE = 'gd_review_v1';
@@ -227,5 +229,12 @@ export class ReviewLogger {
 
   /** 点“提示”得到的建议 */
   noteHint(d: DecisionLog) { this.pendingHint = d; }
+
+  /** 记牌训练的本局统计（每次作答、开关变化时更新） */
+  noteTrain(t: NonNullable<RoundRecord['train']>) {
+    if (!this.rec) return;
+    this.rec.train = t;
+    this.schedule();
+  }
 }
 

@@ -24,6 +24,8 @@ export class DecisionPanel {
   private closeBtn: HTMLButtonElement;
   /** 最后一条记录是哪一手的实时内容（同一手的更新替换它，不新增记录）；null 表示不是实时内容 */
   private liveKey: string | null = null;
+  /** 面板显示/隐藏时通知牌桌（右上角的记牌器要让开） */
+  onShow: ((shown: boolean) => void) | null = null;
 
   constructor() {
     this.root.className = 'dp';
@@ -109,6 +111,7 @@ export class DecisionPanel {
     if (on === this.shown) return;
     this.shown = on;
     this.root.style.display = on ? '' : 'none';
+    this.onShow?.(on);
   }
 
   destroy() { this.root.remove(); }

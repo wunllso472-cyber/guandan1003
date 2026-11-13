@@ -22,6 +22,8 @@ import { TableFlip } from './TableFlip';
 import { sound } from '../audio/Sound';
 import { prefs, savePrefs } from '../game/prefs';
 import { autoPickFor } from '../game/autopick';
+import { TrainLayer } from './TrainPanel';
+import { TIER_NAMES } from '@shared/training';
 
 const PAD = 28; // 刘海屏安全边距
 /** 等待 Jev 建议的最长时间 */
@@ -103,6 +105,8 @@ export class TableScene extends Container {
   /** 自己出完后查看对家手牌（只读） */
   private watching = -1;
   private watchTag: Text;
+  /** 记牌训练：记牌器面板和随局快问 */
+  private train: TrainLayer;
 
   constructor(private client: GameClient, private onExit: () => void) {
     super();
@@ -114,6 +118,27 @@ export class TableScene extends Container {
     });
     this.tracker = new CardTracker(client.mySeat);
     this.reviewLog = new ReviewLogger(client, this.tracker);
+    const me0 = client.mySeat;
+    this.train = new TrainLayer({
+      tracker: this.tracker,
+      me: me0,
+      input: () => {
+        const g = this.client.game;
+        return { hand: g.hands[me0] ?? [], level: g.level, partnerHand: this.watching >= 0 ? g.hands[this.watching] ?? null : null };
+      },
+      canAsk: () => {
+        const g = this.client.game;
+        return g.phase === 'play' && g.isActive(me0) && !this.client.isAuto(me0) && this.watching < 0 && !this.client.isPaused?.();
+      },
+      paused: () => !!this.client.isPaused?.(),
+      promoted: (tier) => {
+        this.fx.bigText(`升段 · ${TIER_NAMES[tier]}`, [0xfff3b0, 0xf0a020], 64);
+        this.toast(`升到段位 ${tier}：记牌器上又有一类牌要自己记了`);
+        sound.play('shine');
+      },
+      report: (r) => this.reviewLog.noteTrain(r),
+    });
+    this.decisionPanel.onShow = (on) => this.train.setSuppressed(on);
     this.reasonText = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 22, fontWeight: '700', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 }, wordWrap: true, wordWrapWidth: 760, align: 'center' } });
     this.reasonText.anchor.set(0.5, 1);
     this.reasonText.alpha = 0;
@@ -226,7 +251,7 @@ export class TableScene extends Container {
     for (const h of this.huds) this.tableLayer.addChild(h);
     this.addChild(this.tableLayer);
     if (this.pauseBtn) this.addChild(this.pauseBtn);
-    this.addChild(this.sortBtn, this.smartBtn, this.sfBar, this.chatBtn, this.autoBtn, this.menuBtn, this.hand, this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
+    this.addChild(this.sortBtn, this.smartBtn, this.sfBar, this.chatBtn, this.autoBtn, this.menuBtn, this.train.button, this.train, this.hand,this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
 
     this.watchTag = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 24, fontWeight: '900', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 } } });
     this.watchTag.anchor.set(0.5);
@@ -248,6 +273,7 @@ export class TableScene extends Container {
     Ticker.shared.remove(this.tickTimer, this);
     this.decisionPanel.destroy();
     this.flipper.cancel();
+    this.train.destroy({ children: true });
     this.reviewLog.dispose();
     super.destroy(options);
   }
@@ -308,6 +334,8 @@ export class TableScene extends Container {
     this.menuBtn.position.set(DW - PAD - 54, 34);
     this.autoBtn.position.set(DW - PAD - 160, 34);
     this.pauseBtn?.position.set(DW - PAD - 266, 34);
+    this.train.button.position.set(DW - PAD - (this.pauseBtn ? 372 : 266), 34);
+    this.train.layout(DW, DH, PAD);
     this.toastBox.position.set(DW / 2, DH - 522);
     this.watchTag.position.set(DW / 2, DH - 432);
     this.reasonText.position.set(DW / 2, DH - 484);
@@ -498,6 +526,14 @@ export class TableScene extends Container {
         this.chat.onChat(e);
         break;
     }
+    // 记牌训练：新的一局、一轮结束时出题、重连后本局记录不完整；牌局有变化时更新记牌器
+    switch (e.type) {
+      case 'roundStart': this.train.onRoundStart(); break;
+      case 'trickEnd': this.train.onTrickEnd(e.leader); break;
+      case 'sync': this.train.onSync(); break;
+      case 'roundEnd': this.train.onRoundEnd(); break;
+    }
+    if (e.type !== 'deadline' && e.type !== 'chat') this.train.refresh();
     // 决策面板手动打开着时，内容跟着牌局更新
     if (e.type === 'turn' || e.type === 'play' || e.type === 'pass' || e.type === 'finish' || e.type === 'trickEnd' || e.type === 'sync') this.refreshLivePanel();
   }
@@ -957,10 +993,13 @@ export class TableScene extends Container {
     const myTeam = teamOf(me);
     const win = r.winTeam === myTeam;
     const title = r.gameOver ? (win ? '恭喜过 A，赢得整盘！' : '对方过 A，本盘结束') : win ? '本局胜利' : '本局失利';
-    const box = this.panel(620, 500, title);
+    // 本局出过记牌快问时，弹窗加高，下方加一块记牌成绩，上面的内容整体上移
+    const tr = this.train.summary();
+    const dy = tr ? -50 : 0;
+    const box = this.panel(620, tr ? 600 : 500, title);
     const places = ['头游', '二游', '三游', '末游'];
     r.order.forEach((seat, i) => {
-      const y = -130 + i * 50;
+      const y = -130 + dy + i * 50;
       const ally = teamOf(seat) === myTeam;
       this.addLabel(box, places[i], -200, y, 26, 0xc2410c);
       this.addLabel(box, this.client.players[seat].name + (seat === me ? '（我）' : ''), -110, y, 26, ally ? 0x8a5a00 : 0x2f5fa8, 0);
@@ -968,16 +1007,30 @@ export class TableScene extends Container {
     });
     const up = r.up;
     const lvl = (t: number) => `${rankName(r.levelsBefore[t])} → ${rankName(r.levelsAfter[t])}`;
-    this.addLabel(box, `我方 ${lvl(myTeam)}　　对方 ${lvl(1 - myTeam)}`, 0, 70, 24, 0x5a2e10);
-    this.addLabel(box, r.gameOver ? '' : `${r.winTeam === myTeam ? '我方' : '对方'}升 ${up} 级`, 0, 106, 22, 0x9a6b2a);
-    if (r.note) this.addLabel(box, r.note, 0, 136, 20, 0xc0392b);
+    this.addLabel(box, `我方 ${lvl(myTeam)}　　对方 ${lvl(1 - myTeam)}`, 0, 70 + dy, 24, 0x5a2e10);
+    this.addLabel(box, r.gameOver ? '' : `${r.winTeam === myTeam ? '我方' : '对方'}升 ${up} 级`, 0, 106 + dy, 22, 0x9a6b2a);
+    if (r.note) this.addLabel(box, r.note, 0, 136 + dy, 20, 0xc0392b);
+    if (tr) {
+      const top = 112;
+      box.addChild(new Graphics().roundRect(-272, top, 544, 96, 12).fill({ color: 0xfbe7bd }).stroke({ color: 0xe3b866, width: 2 }));
+      this.addLabel(box, `本局记牌　答对 ${tr.correct} / ${tr.asked}　·　段位 ${tr.tier} ${TIER_NAMES[tr.tier]}`, -252, top + 22, 20, 0xb8431f, 0);
+      // 当前段位最近 10 题的对错
+      const meter = new Graphics();
+      const n = 10, gap = 6, bw = (504 - gap * (n - 1)) / n;
+      for (let i = 0; i < n; i++) {
+        const v = tr.recent[i];
+        meter.roundRect(-252 + i * (bw + gap), top + 44, bw, 10, 5).fill({ color: v === undefined ? 0xead3a6 : v ? 0x2fa457 : 0xd0412c });
+      }
+      box.addChild(meter);
+      this.addLabel(box, tr.progress, -252, top + 74, 18, 0x5a2e10, 0);
+    }
     const btn = new Button(r.gameOver ? '再来一盘' : '下一局', 'orange', 220, 64, () => {
       this.clearOverlay();
       if (r.gameOver && this.client.canRestart) this.client.restart(); else this.client.nextRound();
       if (!this.client.canRestart) this.toast('等待其他玩家…');
     });
-    // 面板内框底边在 244，按钮（高 64）底边留出约 28 的空隙
-    btn.y = 184;
+    // 面板内框底边在 244（加高时 294），按钮（高 64）底边留出约 28 的空隙
+    btn.y = tr ? 252 : 184;
     box.addChild(btn);
   }
 
