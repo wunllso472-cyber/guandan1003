@@ -1,6 +1,6 @@
 // 记牌训练的牌桌界面：右上角的记牌器面板（当前段位要记的格子显示成“?”），左上角的随局快问题卡。
 // 用画布而不是网页浮层：竖屏时整个牌桌旋转 90°，画布上的内容跟着一起转。
-import { Container, Graphics, Text, Ticker } from 'pixi.js';
+import { Container, Graphics, Text, Ticker, type FederatedPointerEvent } from 'pixi.js';
 import type { CardTracker } from '@shared/tracker';
 import {
   bombsLine, makeQuestion, panelCells, progressText, quizDue, record, voidLine,
@@ -239,6 +239,12 @@ export class TrainLayer extends Container {
   private current: Question | null = null;
   private elapsed = 0;
   private closeTimer: ReturnType<typeof setTimeout> | null = null;
+  private DW = 1280;
+  private DH = 750;
+  private defaultPos = { x: 0, y: 60 };
+  /** 拖动中：按下点相对面板左上角的偏移、按下的位置、是否已经移动 */
+  private drag: { dx: number; dy: number; sx: number; sy: number; moved: boolean } | null = null;
+  private lastTap = 0;
 
   constructor(private host: TrainHost) {
     super();
@@ -257,12 +263,70 @@ export class TrainLayer extends Container {
       this.report();
     });
     this.addChild(this.panel, this.quiz);
+    // 按住记牌器（按钮以外的地方）拖动；双击回到默认位置
+    this.panel.cursor = 'grab';
+    this.panel.on('pointerdown', (e) => this.startDrag(e));
+    this.panel.on('globalpointermove', (e) => this.moveDrag(e));
     this.applyVisible();
     Ticker.shared.add(this.tick, this);
   }
 
+  private startDrag(e: FederatedPointerEvent) {
+    const p = this.toLocal(e.global);
+    this.drag = { dx: p.x - this.panel.x, dy: p.y - this.panel.y, sx: p.x, sy: p.y, moved: false };
+    // 松手在浏览器窗口上监听：竖屏（牌桌旋转）时，在面板外松手 Pixi 不一定发 pointerupoutside，拖动会卡住
+    window.addEventListener('pointerup', this.onWindowUp);
+    window.addEventListener('pointercancel', this.onWindowUp);
+  }
+
+  private onWindowUp = () => this.endDrag();
+
+  private moveDrag(e: FederatedPointerEvent) {
+    const d = this.drag;
+    if (!d) return;
+    const p = this.toLocal(e.global);
+    // 移动超过一点距离才算拖动，避免点按时手抖
+    if (!d.moved && Math.hypot(p.x - d.sx, p.y - d.sy) < 8) return;
+    d.moved = true;
+    this.panel.cursor = 'grabbing';
+    this.placePanel(p.x - d.dx, p.y - d.dy);
+  }
+
+  private endDrag() {
+    window.removeEventListener('pointerup', this.onWindowUp);
+    window.removeEventListener('pointercancel', this.onWindowUp);
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    this.panel.cursor = 'grab';
+    if (d.moved) {
+      train.panelPos = { x: this.panel.x / this.DW, y: this.panel.y / this.DH };
+      saveTrain();
+      return;
+    }
+    const now = performance.now();
+    if (now - this.lastTap < 350) {
+      this.lastTap = 0;
+      train.panelPos = null;
+      saveTrain();
+      this.placePanel(this.defaultPos.x, this.defaultPos.y);
+      return;
+    }
+    this.lastTap = now;
+  }
+
+  /** 放到 (x, y)，整个面板保持在牌桌范围内 */
+  private placePanel(x: number, y: number) {
+    const s = this.panel.scale.x;
+    const w = PANEL_W * s;
+    const h = Math.max(this.panel.height, 150 * s);
+    this.panel.position.set(Math.min(Math.max(0, x), this.DW - w), Math.min(Math.max(0, y), this.DH - h));
+  }
+
   override destroy(options?: Parameters<Container['destroy']>[0]) {
     Ticker.shared.remove(this.tick, this);
+    window.removeEventListener('pointerup', this.onWindowUp);
+    window.removeEventListener('pointercancel', this.onWindowUp);
     if (this.closeTimer) clearTimeout(this.closeTimer);
     this.button.destroy();
     super.destroy(options);
@@ -272,10 +336,15 @@ export class TrainLayer extends Container {
    * 手机横屏时整体缩放约一半，设计坐标更宽（约 1600）：放大一档便于看清，
    * 记牌器左移让开右侧的下家头像和出牌区；窄屏（1280）时贴右，不挡对家出的牌。
    */
-  layout(DW: number, _DH: number, pad: number) {
+  layout(DW: number, DH: number, pad: number) {
+    this.DW = DW; this.DH = DH;
     const wide = DW >= 1500;
     this.panel.scale.set(wide ? 1.15 : 1);
-    this.panel.position.set(wide ? DW - pad - 110 - PANEL_W * 1.15 : DW - pad - PANEL_W, 60);
+    this.defaultPos = { x: wide ? DW - pad - 110 - PANEL_W * 1.15 : DW - pad - PANEL_W, y: 60 };
+    // 拖动过的位置按比例保存，换屏幕尺寸、转屏后按比例还原
+    const pos = train.panelPos;
+    if (pos) this.placePanel(pos.x * DW, pos.y * DH);
+    else this.panel.position.set(this.defaultPos.x, this.defaultPos.y);
     this.quiz.scale.set(wide ? 1.1 : 1);
     this.quiz.position.set(pad + 8, 92);
   }

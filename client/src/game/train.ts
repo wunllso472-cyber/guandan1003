@@ -9,10 +9,12 @@ export interface TrainState {
   panelOpen: boolean;
   /** 随局快问 */
   quizOn: boolean;
+  /** 记牌器被拖到的位置（占牌桌宽、高的比例，左上角）；null 为默认位置 */
+  panelPos: { x: number; y: number } | null;
 }
 
 function load(): TrainState {
-  const def: TrainState = { progress: newProgress(), panelOpen: false, quizOn: true };
+  const def: TrainState = { progress: newProgress(), panelOpen: false, quizOn: true, panelPos: null };
   try {
     const s = { ...def, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as TrainState;
     const p = s.progress;

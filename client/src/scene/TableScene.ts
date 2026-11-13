@@ -251,7 +251,7 @@ export class TableScene extends Container {
     for (const h of this.huds) this.tableLayer.addChild(h);
     this.addChild(this.tableLayer);
     if (this.pauseBtn) this.addChild(this.pauseBtn);
-    this.addChild(this.sortBtn, this.smartBtn, this.sfBar, this.chatBtn, this.autoBtn, this.menuBtn, this.train.button, this.train, this.hand,this.actionBar, this.returnBar, this.autoBar, this.fx, this.chat, this.toastBox, this.overlay);
+    this.addChild(this.sortBtn, this.smartBtn, this.sfBar, this.chatBtn, this.autoBtn, this.menuBtn, this.train.button, this.hand, this.actionBar, this.returnBar, this.autoBar, this.train, this.fx, this.chat, this.toastBox, this.overlay);
 
     this.watchTag = new Text({ text: '', style: { fontFamily: FONT_UI, fontSize: 24, fontWeight: '900', fill: 0xffe08a, stroke: { color: 0x2a1600, width: 5 } } });
     this.watchTag.anchor.set(0.5);
