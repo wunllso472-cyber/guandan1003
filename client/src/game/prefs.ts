@@ -1,4 +1,5 @@
 // 本机的玩法偏好（保存在浏览器里）
+import { kv } from '../platform/kv';
 const KEY = 'gd_prefs';
 
 export interface Prefs {
@@ -10,12 +11,12 @@ export interface Prefs {
 
 function load(): Prefs {
   const def: Prefs = { autoPick: true, aiLevel: 'hard' };
-  try { return { ...def, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return def; }
+  try { return { ...def, ...JSON.parse(kv.get(KEY) ?? '{}') }; } catch { return def; }
 }
 
 export const prefs: Prefs = load();
 
 export function savePrefs(p: Partial<Prefs>) {
   Object.assign(prefs, p);
-  try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch { /* 隐私模式 */ }
+  kv.set(KEY, JSON.stringify(prefs));
 }

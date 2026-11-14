@@ -67,6 +67,8 @@ export function loadAll(): RoundRecord[] {
 }
 
 function saveRound(r: RoundRecord) {
+  // 小红书小工具没有复盘页面，也不能上传，不必占用本机存储
+  if (import.meta.env.MODE === 'minitool') return;
   try {
     const all = loadAll().filter((x) => x.id !== r.id);
     all.push(r);
@@ -75,6 +77,8 @@ function saveRound(r: RoundRecord) {
 }
 
 async function upload(rounds: RoundRecord[], keepalive = false) {
+  // 小红书小工具不能联网，不上传
+  if (import.meta.env.MODE === 'minitool') return;
   const url = logsUrl();
   if (!url || !rounds.length) return;
   // 分批，单次请求不超过服务端的大小限制

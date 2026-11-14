@@ -3,6 +3,7 @@
 import { card } from '@shared/cards';
 import type { Combo } from '@shared/combo';
 import voiceScript from '@shared/voice-script.json';
+import { kv } from '../platform/kv';
 
 export type VoiceKind = 'male' | 'female';
 type Speaker = VoiceKind | 'narrator';
@@ -34,7 +35,7 @@ const pickOne = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 const KEY = 'gd_audio';
 function loadSettings(): AudioSettings {
   const def: AudioSettings = { sfx: true, music: true, voice: true, myVoice: 'male', dialect: true };
-  try { return { ...def, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return def; }
+  try { return { ...def, ...JSON.parse(kv.get(KEY) ?? '{}') }; } catch { return def; }
 }
 
 export type Sfx =
@@ -90,7 +91,7 @@ class SoundEngine {
 
   save(s: Partial<AudioSettings>) {
     this.settings = { ...this.settings, ...s };
-    try { localStorage.setItem(KEY, JSON.stringify(this.settings)); } catch { /* 忽略 */ }
+    kv.set(KEY, JSON.stringify(this.settings));
     this.applySettings();
   }
 
@@ -118,6 +119,8 @@ class SoundEngine {
 
   // ---------- 语音 ----------
   private loadVoice(speaker: Speaker, key: string): Promise<AudioBuffer | null> {
+    // 小红书小工具：包内不允许音频文件、页面不能 fetch，语音台词不播放（音效和背景音乐是现场合成的，照常）
+    if (import.meta.env.MODE === 'minitool') return Promise.resolve(null);
     const id = `${speaker}/${key}`;
     let p = this.voices.get(id);
     if (!p) {

@@ -1,5 +1,6 @@
 // 记牌训练的本机进度和开关（保存在浏览器里；换设备或清缓存会从段位 1 重新开始）
 import { MAX_TIER, newProgress, type TrainProgress } from '@shared/training';
+import { kv } from '../platform/kv';
 
 const KEY = 'gd_train';
 
@@ -16,7 +17,7 @@ export interface TrainState {
 function load(): TrainState {
   const def: TrainState = { progress: newProgress(), panelOpen: false, quizOn: true, panelPos: null };
   try {
-    const s = { ...def, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as TrainState;
+    const s = { ...def, ...JSON.parse(kv.get(KEY) ?? '{}') } as TrainState;
     const p = s.progress;
     if (!p || typeof p.tier !== 'number' || typeof p.recent !== 'object') s.progress = newProgress();
     else s.progress.tier = Math.min(MAX_TIER, Math.max(1, Math.round(p.tier)));
@@ -27,5 +28,5 @@ function load(): TrainState {
 export const train: TrainState = load();
 
 export function saveTrain() {
-  try { localStorage.setItem(KEY, JSON.stringify(train)); } catch { /* 隐私模式：本次有效，不保存 */ }
+  kv.set(KEY, JSON.stringify(train));
 }

@@ -43,7 +43,7 @@ html[data-skin="dark"] {
 #lobby.hidden { display: none; }
 .lobby-bg, .lobby-bg > * { position: absolute; pointer-events: none; }
 .lobby-bg { inset: 0; }
-.egg-halo { left: 50%; top: 50%; width: min(78vw, 900px); height: min(118vh, 1000px); transform: translate(-50%, -48%); border-radius: 50% 50% 46% 46% / 58% 58% 42% 42%; background: var(--lb-halo); }
+.egg-halo { left: 50%; top: 50%; width: 78vw; max-width: 900px; height: 118vh; max-height: 1000px; transform: translate(-50%, -48%); border-radius: 50% 50% 46% 46% / 58% 58% 42% 42%; background: var(--lb-halo); }
 .clouds { left: 0; top: 0; width: 100%; height: 45%; }
 .clouds .cloud { fill: var(--lb-cloud); }
 .hills { left: 0; bottom: 0; width: 100%; height: 42%; }
@@ -51,7 +51,7 @@ html[data-skin="dark"] {
 .hills .h2 { fill: var(--lb-h2); }
 .hills .stroke { fill: none; stroke: var(--lb-stroke); stroke-width: var(--lb-stroke-w); stroke-linecap: round; vector-effect: non-scaling-stroke; }
 html:not([data-skin="dark"]) .hills .s2 { display: none; }
-.leaves { bottom: -2%; width: min(30vw, 300px); height: auto; }
+.leaves { bottom: -2%; width: 30vw; max-width: 300px; height: auto; }
 .leaves.left { left: -2%; }
 .leaves.right { right: -2%; }
 .leaves .a { fill: var(--lb-leaf1); }
@@ -60,7 +60,7 @@ html:not([data-skin="dark"]) .hills .s2 { display: none; }
 .leaves .vein { fill: none; stroke: var(--lb-vein); stroke-width: 1.5; }
 .moon { display: none; }
 html[data-skin="dark"] .moon {
-  display: block; right: 12%; top: 13%; width: min(9vw, 84px); aspect-ratio: 1; border-radius: 50%;
+  display: block; right: 12%; top: 13%; width: 9vw; max-width: 84px; height: 9vw; max-height: 84px; border-radius: 50%;
   background: radial-gradient(circle at 38% 35%, #e7d9b0, #b99f63 70%, #8f7a48); box-shadow: 0 0 40px rgba(214,190,130,.25);
 }
 html[data-skin="dark"] .moon::after {
@@ -68,7 +68,7 @@ html[data-skin="dark"] .moon::after {
 }
 .lobby-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .lobby-card {
-  position: relative; width: min(86vw, 380px); padding: 24px 26px 18px; border-radius: 26px; box-sizing: border-box; text-align: center;
+  position: relative; width: 86vw; max-width: 380px; padding: 24px 26px 18px; border-radius: 26px; box-sizing: border-box; text-align: center;
   background: var(--lb-card); border: 1.5px solid var(--lb-card-border); box-shadow: var(--lb-card-shadow);
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
@@ -132,7 +132,7 @@ html[data-skin="mint"] .egg-buddy { display: block; }
 
 /* 风格切换 */
 .skin-pick {
-  position: absolute; right: max(12px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); display: flex; gap: 4px; z-index: 2;
+  position: absolute; right: 12px; right: max(12px, var(--safe-area-inset-right, env(safe-area-inset-right, 0px))); top: 10px; top: max(10px, var(--safe-area-inset-top, env(safe-area-inset-top, 0px))); display: flex; gap: 4px; z-index: 2;
   padding: 4px; border-radius: 999px; background: var(--lb-pick); border: 1px solid var(--lb-card-border);
 }
 .skin-pick button { display: flex; align-items: center; gap: 6px; border: none; background: transparent; padding: 5px 10px 5px 5px; border-radius: 999px; cursor: pointer; color: var(--lb-ink); font: inherit; font-size: 12px; }
@@ -169,7 +169,7 @@ html[data-skin="mint"] .egg-buddy { display: block; }
   background: radial-gradient(ellipse at 50% 40%, #2f9a62 0%, #1c7547 50%, #0b3d23 100%);
 }
 .room-card {
-  width: min(96vw, 760px); max-height: 96vh; box-sizing: border-box; padding: 12px 18px 14px; border-radius: 20px;
+  width: 96vw; max-width: 760px; max-height: 96vh; box-sizing: border-box; padding: 12px 18px 14px; border-radius: 20px;
   background: linear-gradient(#fff8e6, #f3e2bd); border: 4px solid #8a4b12;
   box-shadow: 0 12px 40px rgba(0,0,0,.45), inset 0 0 0 2px #f8d68a; display: flex; flex-direction: column; gap: 10px;
 }
@@ -178,7 +178,7 @@ html[data-skin="mint"] .egg-buddy { display: block; }
 .room-head .code b { color: #c2410c; letter-spacing: 3px; font-size: 26px; }
 .room-head .btn { width: auto; padding: 0 16px; height: 38px; font-size: 16px; margin: 0; }
 .room-table {
-  position: relative; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: auto auto auto; gap: 8px;
+  position: relative; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: auto auto auto; grid-gap: 8px; gap: 8px;
   background: radial-gradient(ellipse at center, #2f9a62, #146238); border-radius: 16px; padding: 10px; border: 3px solid #c99a52;
 }
 .room-table .center {
@@ -231,7 +231,7 @@ html[data-skin="mint"] .egg-buddy { display: block; }
   .room-head .code { font-size: 18px; }
   .room-head .code b { font-size: 22px; }
   .room-head .btn { height: 32px; font-size: 14px; }
-  .room-table { padding: 6px; gap: 5px; }
+  .room-table { padding: 6px; grid-gap: 5px; gap: 5px; }
   .seat { min-height: 56px; padding: 4px 8px; }
   .seat .av { width: 36px; height: 36px; font-size: 17px; }
   .room-foot .btn { height: 40px; font-size: 16px; }
@@ -240,7 +240,7 @@ html[data-skin="mint"] .egg-buddy { display: block; }
 /* ---------- 托管决策面板（client/src/scene/DecisionPanel.ts） ---------- */
 .dp {
   /* 放在右上角按钮（菜单、托管、暂停）下面，不挡住它们 */
-  position: fixed; top: 11vh; right: 12px; z-index: 20; width: min(380px, calc(100vw - 32px));
+  position: fixed; top: 11vh; right: 12px; z-index: 20; width: calc(100vw - 32px); max-width: 380px;
   max-height: 58vh; display: flex; flex-direction: column; border-radius: 12px;
   background: rgba(8, 28, 20, .88); color: #f2ecd8; font-size: 13px; line-height: 1.5;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45); border: 1px solid rgba(255, 224, 138, .35);
@@ -272,3 +272,38 @@ html[data-skin="mint"] .egg-buddy { display: block; }
 .dp-body table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .dp-body th, .dp-body td { text-align: left; padding: 2px 4px; border-bottom: 1px solid rgba(255, 255, 255, .08); vertical-align: top; }
 .dp-body tr.dp-on td { color: #fff; background: rgba(255, 224, 138, .15); }
+
+/* 不支持 Flex gap 的内核（Chrome 84 以前，如 Android 8.1 出厂 WebView 61）：用子项外边距代替。
+   html 上的 no-flexgap 由小红书小工具版的 boot.js 实测后加上（网页版不加，这里不生效） */
+.no-flexgap .logo > * + *, .no-flexgap .field > * + * { margin-left: 10px; }
+.no-flexgap .row > * + *, .no-flexgap .join-row > * + * { margin-left: 12px; }
+.no-flexgap .skin-pick > * + * { margin-left: 4px; }
+.no-flexgap .skin-pick button > * + * { margin-left: 6px; }
+.no-flexgap .dp-head > * + * { margin-left: 6px; }
+.no-flexgap .dp-out > * { margin: 0 6px 4px 0; }
+
+/* ---------- 排行榜（小红书小工具版，client/src/platform/rank.ts） ---------- */
+.rank-entry { display: block; width: 100%; }
+.rank-modal { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }
+.rank-card {
+  width: 90vw; max-width: 420px; height: 80vh; max-height: 560px; display: flex; flex-direction: column; box-sizing: border-box;
+  padding: 14px 16px 12px; border-radius: 20px; background: #fffaf1; color: #4a3a2a;
+  border: 1.5px solid #e6d3b3; box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  padding-bottom: 12px; padding-bottom: calc(12px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+}
+.rank-head { display: flex; align-items: center; justify-content: space-between; font-size: 18px; }
+.rank-close { border: 0; background: transparent; color: inherit; font-size: 26px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.rank-tabs { display: flex; margin: 10px 0 8px; }
+.rank-tabs button { flex: 1; margin-right: 8px; padding: 7px 0; border: 1px solid #e6d3b3; border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+.rank-tabs button:last-child { margin-right: 0; }
+.rank-tabs button.on { background: var(--lb-primary, linear-gradient(#ffc04a, #f07a12)); color: #fff; border-color: transparent; font-weight: 700; }
+.rank-mine { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.rank-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
+.rank-row { display: flex; align-items: center; padding: 7px 4px; border-bottom: 1px solid rgba(0,0,0,.06); font-size: 14px; }
+.rank-row.top .rank-no { color: #fff; background: #f07a12; }
+.rank-no { width: 26px; height: 26px; line-height: 26px; margin-right: 10px; border-radius: 50%; text-align: center; font-weight: 700; font-size: 13px; background: rgba(0,0,0,.06); flex: none; }
+.rank-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-score { margin-left: 10px; font-weight: 700; }
+.rank-empty { padding: 30px 0; text-align: center; font-size: 13px; opacity: .7; }
+.rank-rule { margin-top: 8px; font-size: 11px; line-height: 1.5; opacity: .7; }
+

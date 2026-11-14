@@ -922,7 +922,6 @@ export class TableScene extends Container {
   }
 
   private showMenu() {
-    const box = this.panel(420, this.client.canRestart ? 490 : 410, '菜单');
     const items: [string, 'orange' | 'blue' | 'gray', () => void][] = this.client.canRestart
       ? [
         ['继续游戏', 'orange', () => this.clearOverlay()],
@@ -934,11 +933,13 @@ export class TableScene extends Container {
         ['离开房间', 'gray', () => this.onExit()],
       ];
     items.splice(1, 0, ['设置', 'blue', () => this.showSettings()]);
-    // 复盘页面读取本机保存的记录；新窗口打开，不打断当前牌局
-    items.splice(2, 0, ['复盘记录', 'blue', () => { window.open('./review.html', '_blank'); }]);
+    // 复盘页面读取本机保存的记录；新窗口打开，不打断当前牌局（小红书小工具是单页、不能开新窗口，没有这一项）
+    if (import.meta.env.MODE !== 'minitool') items.splice(2, 0, ['复盘记录', 'blue', () => { window.open('./review.html', '_blank'); }]);
+    // 按钮间隔 80；面板高度和首个按钮位置随按钮个数变化
+    const box = this.panel(420, 90 + items.length * 80, '菜单');
     items.forEach(([t, st, fn], i) => {
       const b = new Button(t, st, 260, 60, fn);
-      b.y = (this.client.canRestart ? -130 : -90) + i * 80;
+      b.y = -130 + 40 * (5 - items.length) + i * 80;
       box.addChild(b);
     });
   }
