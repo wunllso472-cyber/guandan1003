@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>掼蛋 · 记牌训练方案与原型</title>
+<style>
+  :root { --ink:#2b2118; --sub:#6d5a45; --line:#e4d6bf; --paper:#fbf6ec; --card:#fffdf8; --accent:#b8431f; --green:#1c6b45; --gold:#e0a530; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.75 "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:40px 20px 80px; }
+  h1 { font-size:34px; line-height:1.25; margin:0 0 8px; letter-spacing:1px; }
+  h2 { font-size:24px; margin:56px 0 14px; padding-top:18px; border-top:2px solid var(--ink); }
+  h3 { font-size:18px; margin:30px 0 8px; color:var(--accent); }
+  p { margin:8px 0; max-width:46em; }
+  .lead { color:var(--sub); font-size:17px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin:16px 0; }
+  .box b { color:var(--accent); }
+  .tw { overflow-x:auto; margin:12px 0; }
+  table { border-collapse:collapse; width:100%; font-size:15px; background:var(--card); }
+  th, td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#f3e8d2; white-space:nowrap; }
+  code { background:#f1e6d0; padding:1px 6px; border-radius:4px; font:14px/1.5 Consolas,"SF Mono",monospace; }
+  pre { background:#231a12; color:#f3e7cf; padding:14px 16px; border-radius:10px; overflow-x:auto; font:13.5px/1.6 Consolas,"SF Mono",monospace; }
+  ol, ul { padding-left:22px; margin:8px 0; max-width:46em; }
+  .tag { display:inline-block; font-size:12px; font-weight:700; padding:1px 9px; border-radius:10px; background:var(--green); color:#fff; vertical-align:2px; margin-right:6px; }
+  .tag.p1 { background:#8a6a2a; }
+  figure { margin:20px 0 8px; }
+  figcaption { font-size:14px; color:var(--sub); margin-top:8px; }
+
+  /* ---------- 原型：横屏手机，所有尺寸用 cqw，随容器缩放 ---------- */
+  .ph { position:relative; width:100%; aspect-ratio:1280/750; container-type:inline-size; overflow:hidden; border-radius:18px; border:6px solid #1a120b;
+        background:radial-gradient(ellipse at 50% 42%, #2f9a62 0%, #1c7547 52%, #0d4428 100%); color:#fff; font-size:1.5cqw; line-height:1.4; box-shadow:0 14px 34px -16px rgba(40,20,0,.55); }
+  .ph > *, .info i, .info b, .info s, .hud em, .nd s, .nd u { position:absolute; }
+  .info { left:2.8cqw; top:.8cqw; width:21cqw; height:6.2cqw; border-radius:1.2cqw; background:rgba(26,15,5,.55); border:.15cqw solid rgba(245,195,74,.75); }
+  .info i { left:.9cqw; top:.8cqw; width:3.6cqw; height:4.6cqw; border-radius:.5cqw; background:#fffaf0; color:#d4231c; font:900 2.4cqw/4.6cqw Arial; text-align:center; font-style:normal; }
+  .info b { left:5.5cqw; top:.5cqw; color:#ffd75e; font-size:1.8cqw; white-space:nowrap; }
+  .info s { left:5.5cqw; top:3.4cqw; text-decoration:none; font-size:1.3cqw; white-space:nowrap; }
+  .tb { right:2.4cqw; top:1cqw; display:flex; gap:.8cqw; }
+  .tb u, .btn { position:static; text-decoration:none; padding:.5cqw 1.5cqw; border-radius:3cqw; font-weight:900; font-size:1.5cqw; background:linear-gradient(#f2f2f2,#b9bec6); color:#444; border:.12cqw solid rgba(255,255,255,.7); white-space:nowrap; }
+  .tb u.on { background:linear-gradient(#ffc04a,#f07a12); color:#fff; }
+  .tb u.bl { background:linear-gradient(#7cc8ff,#2f7ee0); color:#fff; }
+  .hud { width:8cqw; text-align:center; font-size:1.25cqw; }
+  .hud::before { content:""; position:static; display:block; margin:0 auto .2cqw; width:5cqw; height:5cqw; border-radius:50%; background:#f6e3c6; border:.35cqw solid #5aa8ff; }
+  .hud.ally::before { border-color:#f5c34a; }
+  .hud em { right:.2cqw; top:-.4cqw; font-style:normal; background:#c0392b; border-radius:1cqw; padding:0 .6cqw; font-weight:900; }
+  .cards { display:flex; }
+  .c { position:static; flex:none; width:3.7cqw; height:5.2cqw; margin-right:-1.5cqw; border-radius:.45cqw; background:#fffdf7; border:.1cqw solid #b9a888; color:#222; font:900 1.7cqw/1.2 Arial; padding:.2cqw .35cqw; font-style:normal; }
+  .c.r { color:#d4231c; }
+  .hand { left:11cqw; bottom:5.2cqw; }
+  .hand .c { width:5.6cqw; height:7.8cqw; margin-right:-2.3cqw; font-size:2.1cqw; letter-spacing:-.15cqw; }
+  .bar { left:0; right:0; bottom:.9cqw; display:flex; justify-content:flex-end; gap:.8cqw; padding-right:2.6cqw; }
+  .bar .btn { background:linear-gradient(#7cc8ff,#2f7ee0); color:#fff; }
+  .say { font-weight:900; font-size:1.9cqw; text-shadow:0 .15cqw .3cqw #000; }
+  /* 记牌器 */
+  .jp { right:2.4cqw; top:5.4cqw; width:35cqw; border-radius:1cqw; background:rgba(8,28,20,.9); border:.12cqw solid rgba(255,224,138,.45); padding:.7cqw .9cqw .8cqw; font-size:1.2cqw; }
+  .jp .hd { display:flex; align-items:center; gap:.6cqw; margin-bottom:.5cqw; color:#ffe08a; font-weight:900; }
+  .jp .hd span { flex:1; }
+  .jp .hd a { background:rgba(255,255,255,.14); border-radius:.5cqw; padding:0 .7cqw; color:#fff; }
+  .jp .g { display:grid; grid-template-columns:repeat(9,1fr); gap:.35cqw; margin-bottom:.35cqw; }
+  .jp .g div { text-align:center; border-radius:.5cqw; background:rgba(255,255,255,.1); padding:.15cqw 0 .25cqw; line-height:1.25; }
+  .jp .g div b { display:block; font-size:1.55cqw; color:#fff; }
+  .jp .g div.h { background:rgba(224,165,48,.22); outline:.12cqw dashed #e0a530; }
+  .jp .g div.h b { color:#ffd75e; }
+  .jp .ln { color:#d5d9cf; margin-top:.25cqw; }
+  .jp .ln b { color:#ffe08a; margin-right:.5cqw; }
+  /* 快问卡 */
+  .qz { left:2.8cqw; top:7.6cqw; width:33cqw; border-radius:1.2cqw; background:#fff4dc; color:#4a2a0c; border:.3cqw solid #8a4b12; padding:.8cqw 1cqw 1cqw; box-shadow:0 .8cqw 2cqw rgba(0,0,0,.4); }
+  .qz .t { display:flex; justify-content:space-between; font-size:1.15cqw; color:#9a6b2a; font-weight:700; }
+  .qz .q { font-size:1.75cqw; font-weight:900; margin:.3cqw 0 .7cqw; }
+  .qz .o { display:grid; grid-template-columns:repeat(4,1fr); gap:.6cqw; }
+  .qz .o span { text-align:center; padding:.55cqw 0; border-radius:.8cqw; font-weight:900; font-size:1.8cqw; color:#fff; background:linear-gradient(#7cc8ff,#2f7ee0); }
+  .qz .o span.ok { background:linear-gradient(#8fe39a,#2fa457); }
+  .qz .o span.no { background:linear-gradient(#ff9a8a,#d0412c); }
+  .qz .o span.dim { opacity:.4; }
+  .qz .tm { height:.5cqw; border-radius:.3cqw; background:#ead3a6; margin-top:.8cqw; overflow:hidden; }
+  .qz .tm i { position:static; display:block; height:100%; width:62%; background:#e0762a; }
+  .qz .ex { font-size:1.2cqw; margin-top:.7cqw; color:#6b4a2b; }
+  .up { left:50%; top:30%; transform:translateX(-50%); padding:1cqw 3cqw; border-radius:1.4cqw; background:rgba(26,15,5,.82); border:.2cqw solid #f5c34a; text-align:center; white-space:nowrap; }
+  .up b { position:static; display:block; font-size:3cqw; color:#ffd75e; }
+  /* 弹窗 */
+  .mask { inset:0; background:rgba(0,0,0,.5); }
+  .dlg { left:50%; top:50%; transform:translate(-50%,-50%); width:52cqw; border-radius:1.6cqw; background:#fff4dc; border:.45cqw solid #5a2e10; color:#5a2e10; overflow:hidden; }
+  .dlg .hd { background:#e39a2c; color:#fff; text-align:center; font-weight:900; font-size:2.3cqw; padding:.7cqw; }
+  .dlg .bd { padding:1.2cqw 2.4cqw 1.6cqw; font-size:1.5cqw; }
+  .dlg .row { display:flex; justify-content:space-between; padding:.25cqw 0; }
+  .dlg .tr { margin-top:.9cqw; padding:.9cqw 1.2cqw; border-radius:1cqw; background:#fbe7bd; border:.12cqw solid #e3b866; }
+  .dlg .tr b { color:#b8431f; }
+  .meter { display:flex; gap:.4cqw; margin:.5cqw 0; }
+  .meter i { position:static; flex:1; height:.9cqw; border-radius:.5cqw; background:#ead3a6; }
+  .meter i.f { background:#2fa457; }
+  .meter i.x { background:#d0412c; }
+  .dlg .go { display:block; width:18cqw; margin:1.2cqw auto 0; text-align:center; padding:.8cqw; border-radius:3cqw; background:linear-gradient(#ffc04a,#f07a12); color:#fff; font-weight:900; font-size:1.9cqw; }
+  /* 关卡地图 */
+  .ph.map { background:linear-gradient(#f6e6cd,#efd6b2); color:#5b3a1e; }
+  .map .ttl { left:3cqw; top:2cqw; font-size:2.6cqw; font-weight:900; }
+  .map .me { right:3cqw; top:2.2cqw; font-size:1.5cqw; font-weight:700; }
+  .map svg { left:0; top:0; width:100%; height:100%; }
+  .nd { width:8.4cqw; height:8.4cqw; margin:-4.2cqw 0 0 -4.2cqw; border-radius:50%; text-align:center; background:#fffdf7; border:.4cqw solid #c9a15a; font:900 3.2cqw/7.6cqw Arial; color:#b8431f; box-shadow:0 .5cqw 0 #c9a15a; }
+  .nd.done { background:#2fa457; color:#fff; border-color:#16602f; box-shadow:0 .5cqw 0 #16602f; }
+  .nd.cur { background:#f07a12; color:#fff; border-color:#9a4a00; box-shadow:0 .5cqw 0 #9a4a00, 0 0 0 1cqw rgba(240,122,18,.25); }
+  .nd.lock { background:#e6dccb; color:#a89a84; border-color:#cfc2ab; box-shadow:0 .5cqw 0 #cfc2ab; }
+  .nd s { left:50%; top:9.2cqw; transform:translateX(-50%); text-decoration:none; font:700 1.25cqw/1.3 "Microsoft YaHei",sans-serif; color:#5b3a1e; white-space:nowrap; text-align:center; }
+  .nd u { left:50%; top:-2.4cqw; transform:translateX(-50%); text-decoration:none; font-size:1.5cqw; color:#e0a530; white-space:nowrap; line-height:1; }
+  .side { right:3cqw; bottom:3cqw; display:flex; gap:1cqw; }
+  .side div { position:static; padding:1cqw 1.6cqw; border-radius:1.2cqw; background:#fffdf7; border:.15cqw solid #e2c6a0; font-weight:900; text-align:center; font-size:1.4cqw; }
+  .side div small { display:block; line-height:1.5; font-weight:400; font-size:1.1cqw; color:#8a6a45; }
+  /* 体检 */
+  .rep { inset:7cqw 5cqw; border-radius:1.6cqw; background:#fff4dc; color:#5a2e10; border:.45cqw solid #5a2e10; padding:1.6cqw 2.4cqw; display:grid; grid-template-columns:22cqw 1fr; gap:2cqw; }
+  .rep > div { position:static; }
+  .rep * { position:static; }
+  .rep .big { font:900 7cqw/1 Arial; color:#2fa457; }
+  .rep h5 { margin:0 0 .8cqw; font-size:2.1cqw; color:#b8431f; }
+  .rep li { margin-bottom:1cqw; font-size:1.65cqw; }
+  .rep ul { margin:0; padding-left:2cqw; }
+  .rep .kv { display:flex; justify-content:space-between; font-size:1.6cqw; border-bottom:.1cqw dashed #d9b97c; padding:.7cqw 0; }
+  .goal { left:50%; top:2cqw; transform:translateX(-50%); padding:.6cqw 2.4cqw; border-radius:3cqw; background:rgba(26,15,5,.7); border:.15cqw solid #f5c34a; font-weight:900; font-size:1.7cqw; white-space:nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>掼蛋 · 记牌训练方案与原型</h1>
+  <p class="lead">验证阶段的详细方案。目标是用最小的改动，在现有 Render 免费部署上验证一件事：玩家愿不愿意为了“练记牌”而连续打下去。</p>
+
+  <div class="box">
+    <p><b>结论先行。</b>验证版只做“记牌训练”这一条主线：一个可以逐段撤掉的记牌器，加上打牌过程中的随局快问，再加段位和局末成绩。全部在浏览器里完成，进度存在本机，不需要账号和数据库，Render 免费版完全够用。关卡地图、残局挑战、局后体检放在验证通过之后，本文给出原型供方向确认。</p>
+  </div>
+
+  <h2>一、验证阶段的边界</h2>
+  <div class="tw"><table>
+    <tr><th>约束</th><th>现状</th><th>对方案的影响</th></tr>
+    <tr><td>Render 免费版</td><td>闲置约 15 分钟休眠，重启后内存清空，没有数据库</td><td>训练进度只存浏览器 <code>localStorage</code>；换手机或清缓存会丢进度，验证阶段可以接受</td></tr>
+    <tr><td>没有账号</td><td>只有昵称和本机 token</td><td>不做排行榜和跨设备同步</td></tr>
+    <tr><td>数据回收</td><td>已有复盘日志上传通道 <code>/logs</code>，客户端会在服务重启后补传</td><td>训练统计随复盘日志一起上传，用现有的 <code>scripts/review.ts</code> 读取，不新增服务端接口</td></tr>
+    <tr><td>单机与联机</td><td>两种模式共用牌桌界面和记牌器</td><td>训练功能两种模式都生效，逻辑放在 <code>shared/</code></td></tr>
+  </table></div>
+
+  <h2>二、记牌阶梯</h2>
+  <p>在你给的顺序（王、级牌、A 和 K、10 和 5、空门）基础上补了“炸弹”一段，并把更细的内容留到验证之后。每一段只增加一类信息，前面各段的内容继续考。</p>
+  <div class="tw"><table>
+    <tr><th>段位</th><th>要记的内容</th><th>张数</th><th>为什么排在这里</th><th>阶段</th></tr>
+    <tr><td>1 记王</td><td>大王、小王各剩几张</td><td>4</td><td>数量最少，直接决定单张谁最大</td><td>验证版</td></tr>
+    <tr><td>2 记级牌</td><td>级牌剩几张，其中逢人配（红桃级牌）剩几张</td><td>8</td><td>王出完后级牌最大；逢人配决定炸弹和同花顺的可能</td><td>验证版</td></tr>
+    <tr><td>3 记 A、K</td><td>A、K 各剩几张</td><td>16</td><td>王和级牌出完后的登基牌</td><td>验证版</td></tr>
+    <tr><td>4 记炸弹</td><td>全场已出几个炸弹</td><td>—</td><td>判断外面还有多少争牌权的能力</td><td>验证版</td></tr>
+    <tr><td>5 记 10 和 5</td><td>10、5 各剩几张</td><td>16</td><td>任何顺子都必含 5 或 10，记住就能判断顺子还成不成</td><td>验证版</td></tr>
+    <tr><td>6 记空门</td><td>上家、下家最近不要的是哪种牌型</td><td>—</td><td>决定打什么牌型能走通，是“打上放下”的依据</td><td>验证版</td></tr>
+    <tr><td>7 读对家</td><td>对家想要什么牌型、三家谁主攻</td><td>—</td><td>需要理解推断，复用 <code>inference.ts</code></td><td>后续</td></tr>
+    <tr><td>8 全记</td><td>Q、J 和小牌，同花顺的残余可能</td><td>—</td><td>有余力再练</td><td>后续</td></tr>
+  </table></div>
+  <p>遇到重合时按靠前的段位算：例如本局打 A，A 就归“级牌”那一段，第 3 段只考 K。</p>
+
+  <h2>三、验证版功能详设</h2>
+
+  <h3>原型 1：牌桌上的记牌器</h3>
+  <figure>
+    <div class="ph t">
+      <div class="jp">
+        <div class="hd"><span>记牌器 · 外面还剩</span><a>‹</a>段位 2 记级牌<a>›</a><a>快问 开</a></div>
+        <div class="g">
+          <div class="h">大王<b>?</b></div><div class="h">小王<b>?</b></div><div class="h">级8<b>?</b></div><div class="h">配<b>?</b></div>
+          <div>A<b>5</b></div><div>K<b>6</b></div><div>10<b>4</b></div><div>5<b>7</b></div><div>Q<b>6</b></div>
+        </div>
+        <div class="g">
+          <div>J<b>8</b></div><div>9<b>3</b></div><div>7<b>6</b></div><div>6<b>5</b></div><div>4<b>8</b></div><div>3<b>2</b></div><div>2<b>6</b></div><div></div><div></div>
+        </div>
+        <div class="ln"><b>炸弹</b>已出 2 个（上家 1、对家 1）</div>
+        <div class="ln"><b>空门</b>上家没要：对子　下家没要：顺子</div>
+      </div>
+    </div>
+    <figcaption>右上角新增“记牌”按钮，点开后面板停在按钮下方，不挡下家头像和出牌区。</figcaption>
+  </figure>
+  <ul>
+    <li><b>显示的数字是“外面还剩几张”</b>，即不在自己手里、也还没打出的牌，这是打牌时真正要用的数。</li>
+    <li><b>逐段撤掉</b>：当前段位及以下各段对应的格子显示为“?”（黄色虚线框），这些就是要自己记的；更高段位的内容照常显示，当作辅助。图中是段位 2，所以王和级牌被隐藏。</li>
+    <li>标题栏的 <b>‹ ›</b> 可以手动调段位。验证阶段不加锁，老玩家可以直接跳到适合自己的段位。</li>
+    <li><b>快问 开/关</b>：只想把它当普通记牌器用的人可以关掉提问。</li>
+    <li>面板默认收起，是否展开记在本机。</li>
+  </ul>
+
+  <h3>原型 2：随局快问</h3>
+  <figure>
+    <div class="ph t">
+      <div class="qz">
+        <div class="t"><span>记牌快问 · 段位 2</span><span>本局 2/3</span></div>
+        <div class="q">不算你手里的，外面还有几张级牌 8？</div>
+        <div class="o"><span>2</span><span>3</span><span>4</span><span>5</span></div>
+        <div class="tm"><i></i></div>
+      </div>
+    </div>
+    <figcaption>题卡出现在左上角级牌信息下方，牌局不暂停，别人照常出牌。</figcaption>
+  </figure>
+  <div class="tw"><table>
+    <tr><th>规则</th><th>设计</th><th>理由</th></tr>
+    <tr><td>提问时机</td><td>一轮结束时；距上一题至少隔 2 轮；全场已出满 12 张；下一轮不是我领牌；我没有托管、还没出完</td><td>别人出牌的间隙作答，不占自己的出牌时间</td></tr>
+    <tr><td>作答时间</td><td>10 秒，底部进度条；超时算错</td><td>逼出“记住了”而不是“现推”</td></tr>
+    <tr><td>答案口径</td><td>以出题那一刻的局面为准，之后别人再出牌不影响对错</td><td>避免边答边变</td></tr>
+    <tr><td>选项</td><td>数量题给 4 个相邻的数；牌型题给 4 种牌型</td><td>一次点击完成，拇指可达</td></tr>
+    <tr><td>题目来源</td><td>七成来自当前段位，三成复习更低的段位</td><td>升段后不丢前面的内容</td></tr>
+    <tr><td>答案来源</td><td>全部由现有 <code>CardTracker</code> 计算</td><td>不需要人工出题，题量无限</td></tr>
+  </table></div>
+  <p>各段的题目：</p>
+  <div class="tw"><table>
+    <tr><th>段位</th><th>题目</th><th>选项</th></tr>
+    <tr><td>1</td><td>外面还有几张大王？／外面还有几张小王？</td><td>0、1、2</td></tr>
+    <tr><td>2</td><td>外面还有几张级牌？／外面还有几张逢人配？</td><td>4 个相邻的数／0、1、2</td></tr>
+    <tr><td>3</td><td>外面还有几张 A？／外面还有几张 K？</td><td>4 个相邻的数</td></tr>
+    <tr><td>4</td><td>到现在全场一共出过几个炸弹？</td><td>4 个相邻的数</td></tr>
+    <tr><td>5</td><td>外面还有几张 10？／外面还有几张 5？</td><td>4 个相邻的数</td></tr>
+    <tr><td>6</td><td>上家（或下家）最近一次没要的是对手出的什么牌型？</td><td>单张、对子、三带二、顺子等 4 种</td></tr>
+  </table></div>
+
+  <h3>原型 3：作答反馈与升段</h3>
+  <figure>
+    <div class="ph t">
+      <div class="qz">
+        <div class="t"><span>记牌快问 · 段位 2</span><span>本局 2/3</span></div>
+        <div class="q">不算你手里的，外面还有几张级牌 8？</div>
+        <div class="o"><span class="dim">2</span><span class="ok">3 ✓</span><span class="no">4 ✗</span><span class="dim">5</span></div>
+        <div class="ex">共 8 张：你手里 2 张，已出 3 张，外面还剩 3 张。</div>
+      </div>
+      <div class="up">升段<b>段位 3 · 记 A、K</b>最近 10 题答对 8 题</div>
+    </div>
+    <figcaption>左：答错时标出正确答案并给一句算法；中：达到升段条件时的提示（两者不会同时出现，这里合在一张图里）。</figcaption>
+  </figure>
+  <ul>
+    <li>答完显示 2 秒后自动收起；答错时给出“总数、手里、已出、外面”的算式，让人知道怎么算。</li>
+    <li><b>升段条件</b>：当前段位的题目，最近 10 题答对 8 题及以上。升段后记牌器再多隐藏一段。</li>
+    <li><b>不自动降段</b>。连续答错只提示“可以先把记牌器调回上一段”，由玩家自己决定。</li>
+  </ul>
+
+  <h3>原型 4：局末记牌成绩</h3>
+  <figure>
+    <div class="ph t">
+      <div class="mask"></div>
+      <div class="dlg">
+        <div class="hd">本局胜利</div>
+        <div class="bd rel">
+          <div class="row"><span>头游　我</span><span>我方</span></div>
+          <div class="row"><span>二游　下家</span><span>对方</span></div>
+          <div class="row"><span>我方 8 → 10　　对方 6 → 6</span><span>我方升 2 级</span></div>
+          <div class="tr">
+            <div><b>本局记牌</b>　答对 3 / 4　·　段位 2 记级牌</div>
+            <div class="meter"><i class="f"></i><i class="f"></i><i class="x"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></div>
+            <div>升段进度：最近 7 题答对 6 题，再答对 2 题升到“记 A、K”</div>
+          </div>
+          <span class="go">下一局</span>
+        </div>
+      </div>
+    </div>
+    <figcaption>在现有结算弹窗里加一块记牌成绩，不新增页面。</figcaption>
+  </figure>
+
+  <h3>边界情况</h3>
+  <div class="tw"><table>
+    <tr><th>情况</th><th>处理</th></tr>
+    <tr><td>托管中、自己已经出完在看对家手牌</td><td>不提问，记牌器照常显示</td></tr>
+    <tr><td>作答时轮到自己出牌</td><td>题卡留在左上角不遮挡手牌和按钮，可以先出牌；超时照常算错</td></tr>
+    <tr><td>联机断线重连</td><td>重连后本局的出牌记录不完整，本局不再提问，记牌器标明“本局记录不完整”，下一局恢复</td></tr>
+    <tr><td>本局没有合适的题（例如还没人不出过）</td><td>换同段位的其他题型，都没有就跳过这一次</td></tr>
+    <tr><td>浏览器禁用本机存储</td><td>功能可用，只是进度不保存</td></tr>
+  </table></div>
+
+  <h2>四、验证通过后的方向（原型供确认）</h2>
+  <p>这一部分暂不开发，先确认方向。它们需要的账号、存档和国内部署，放在验证通过之后一起做。</p>
+
+  <h3><span class="tag p1">后续</span>原型 5：关卡地图“从 2 打到 A”</h3>
+  <figure>
+    <div class="ph map">
+      <div class="ttl">升级之路</div>
+      <div class="me">记牌段位 3　·　★ 14 / 39</div>
+      <svg viewBox="0 0 1280 750" preserveAspectRatio="none"><path d="M130 420 C260 250 330 250 420 400 S620 560 700 380 S900 220 990 380 S1130 520 1180 330" fill="none" stroke="#c9a15a" stroke-width="10" stroke-dasharray="4 20" stroke-linecap="round"/></svg>
+      <div class="nd done" style="left:10%;top:56%">2<u>★★★</u><s>规则与牌型</s></div>
+      <div class="nd done" style="left:24%;top:38%">3<u>★★☆</u><s>理牌</s></div>
+      <div class="nd done" style="left:38%;top:62%">4<u>★★★</u><s>记王</s></div>
+      <div class="nd cur" style="left:52%;top:60%">5<u>★☆☆</u><s>记级牌<br>打 3 局，记牌正确率 80%</s></div>
+      <div class="nd lock" style="left:66%;top:38%">6<s>记 A、K</s></div>
+      <div class="nd lock" style="left:79%;top:50%">7<s>记炸弹</s></div>
+      <div class="nd lock" style="left:92%;top:44%">8<s>10 和 5</s></div>
+      <div class="side"><div>每日一副牌<small>全网同一副牌</small></div><div>残局挑战<small>第 12 关</small></div><div>闪记专项<small>1 分钟一局</small></div></div>
+    </div>
+    <figcaption>13 章对应 13 个级别，每章一个主题，每关三星，章末打一个有固定风格的电脑。</figcaption>
+  </figure>
+
+  <h3><span class="tag p1">后续</span>原型 6：残局挑战</h3>
+  <figure>
+    <div class="ph">
+      <div class="goal">残局 12　·　你先出，3 手内出完　·　已用 0 手</div>
+      <div class="hud" style="left:46%;top:13%">对家<em>0</em></div>
+      <div class="hud" style="left:3%;top:34%">上家<em>5</em></div>
+      <div class="hud" style="right:3%;top:34%">下家<em>4</em></div>
+      <div class="say" style="left:13%;top:38%">外面最大：对 K</div>
+      <div class="cards hand" style="left:30%"><i class="c r">A</i><i class="c">A</i><i class="c">9</i><i class="c r">9</i><i class="c">9</i><i class="c r">4</i><i class="c">4</i><i class="c">3</i></div>
+      <div class="bar"><span class="btn">重来</span><span class="btn">看答案</span></div>
+    </div>
+    <figcaption>题目由电脑自己对打后截取残局、再用现有的模拟程序确认有解后入库，可以批量生成。</figcaption>
+  </figure>
+
+  <h3><span class="tag p1">后续</span>原型 7：局后体检</h3>
+  <figure>
+    <div class="ph">
+      <div class="rep">
+        <div>
+          <h5>与高手一致率</h5>
+          <div class="big">82%</div>
+          <div class="kv" style="margin-top:1cqw"><span>出牌 23 手</span><span>一致 19 手</span></div>
+          <div class="kv"><span>记牌快问</span><span>3 / 4</span></div>
+          <div class="kv"><span>炸弹使用</span><span>2 个，1 个偏早</span></div>
+          <div class="kv"><span>本局角色</span><span>主攻</span></div>
+        </div>
+        <div>
+          <h5>关键失误 3 手</h5>
+          <ul>
+            <li><b>第 6 手</b>　你出了对 A，建议不出。对家正在走对子，压住等于截了队友的牌。</li>
+            <li><b>第 11 手</b>　你用 4 炸压单张 K，建议用小王。外面已经没有大王，小王就是最大的单张。</li>
+            <li><b>第 17 手</b>　你领出顺子，建议领对子。下家刚才没要对子。</li>
+          </ul>
+          <h5 style="margin-top:1.2cqw">下一步练什么</h5>
+          <ul><li>第 11 手是记王的问题：建议把记牌器调到段位 1 再练两局。</li></ul>
+        </div>
+      </div>
+    </div>
+    <figcaption>复用已有的复盘日志和顾问：每一手都已经有“候选、评分、命中规则”，只需要汇总成给玩家看的报告。</figcaption>
+  </figure>
+
+  <h2>五、技术实现（验证版）</h2>
+  <div class="tw"><table>
+    <tr><th>文件</th><th>动作</th><th>内容</th></tr>
+    <tr><td><code>shared/training.ts</code></td><td>新增</td><td>纯逻辑：记牌器各格的数、出题、判分、升段。只依赖 <code>CardTracker</code>，不碰界面</td></tr>
+    <tr><td><code>tests/training.test.ts</code></td><td>新增</td><td>各段题目的答案正确、级牌与 A/K/10/5 重合时的归属、升段规则、没有可出的题时返回空</td></tr>
+    <tr><td><code>client/src/game/train.ts</code></td><td>新增</td><td>本机进度的读写（<code>localStorage</code> 键 <code>gd_train</code>）</td></tr>
+    <tr><td><code>client/src/scene/TrainPanel.ts</code></td><td>新增</td><td>记牌器面板和快问题卡。沿用决策面板的做法，用网页浮层而不是画布</td></tr>
+    <tr><td><code>client/src/scene/TableScene.ts</code></td><td>小改</td><td>加“记牌”按钮；一轮结束时触发提问；结算弹窗加一块记牌成绩；重连时标记本局记录不完整</td></tr>
+    <tr><td><code>client/src/style.css</code></td><td>小改</td><td>面板和题卡的样式</td></tr>
+    <tr><td><code>client/src/game/reviewLog.ts</code></td><td>小改</td><td>每局的复盘记录里附带训练统计，随现有通道上传</td></tr>
+  </table></div>
+  <p>核心数据结构：</p>
+<pre>// shared/training.ts
+export interface Question {
+  tier: number;          // 属于哪一段
+  kind: 'count' | 'bombs' | 'void';
+  text: string;          // “不算你手里的，外面还有几张级牌 8？”
+  options: string[];
+  answer: number;        // 正确选项的序号
+  explain: string;       // “共 8 张：你手里 2 张，已出 3 张，外面还剩 3 张。”
+}
+export interface TrainProgress {
+  tier: number;                       // 当前段位 1..6
+  recent: Record&lt;number, number[]&gt;;    // 每段最近 10 题的对错（1/0）
+  asked: number; correct: number;     // 累计
+}
+export function panelCells(tracker, myHand, level, tier): Cell[]     // 记牌器每一格，含是否隐藏
+export function makeQuestion(tracker, myHand, level, tier, rand): Question | null
+export function record(p: TrainProgress, q: Question, ok: boolean): { promoted: boolean }
+
+// 随复盘日志上传的训练统计（每局一条）
+train: { tier, asked, correct, timeouts, panelOpen, quizOn }</pre>
+  <p>服务端不改代码，不加依赖，<code>render.yaml</code> 不变。推送到 <code>main</code> 后 Render 自动部署。</p>
+
+  <h2>六、怎么判断验证通过</h2>
+  <p>验证对象建议先找 10 到 20 个会打掼蛋的熟人，每人至少打 5 局。数据从复盘日志里读，加上直接问感受。</p>
+  <div class="tw"><table>
+    <tr><th>看什么</th><th>怎么量</th><th>通过的参考线</th></tr>
+    <tr><td>愿不愿意用</td><td>快问保持开启的局数占比</td><td>过半的人一直开着</td></tr>
+    <tr><td>是否打扰打牌</td><td>超时未答的题占比；有没有人中途关掉</td><td>超时低于两成</td></tr>
+    <tr><td>有没有练到</td><td>同一个人同一段位的正确率，前 5 局对比后 5 局</td><td>有上升，并且有人升段</td></tr>
+    <tr><td>想不想继续</td><td>人均局数；隔天有没有再来</td><td>多数人打满 5 局后还在打</td></tr>
+    <tr><td>直接反馈</td><td>问三个问题：题目难度、出现频率、最想加什么</td><td>用来调参数和决定下一步做地图还是体检</td></tr>
+  </table></div>
+  <p>参考线是我给的起点，不是行业标准，样本只有十几个人时主要看方向和原话反馈。</p>
+
+  <h2>七、实施步骤</h2>
+  <ol>
+    <li>写 <code>shared/training.ts</code> 和测试，确认题目答案都对。</li>
+    <li>做记牌器面板（原型 1），单机里自测。</li>
+    <li>做快问题卡和反馈（原型 2、3）。</li>
+    <li>结算弹窗加记牌成绩（原型 4），训练统计接入复盘日志。</li>
+    <li>手机上实测横屏、竖屏旋转、刘海屏下的位置；跑全部测试和类型检查。</li>
+    <li>你确认后推送到 <code>main</code>，由 Render 自动部署，发给试玩的人。</li>
+  </ol>
+
+  <h2>八、需要你确认的三点</h2>
+  <ol>
+    <li><b>段位顺序</b>：第 4 段“记炸弹”是我加的，放在 A、K 之后、10 和 5 之前。如果你希望严格按“王、级牌、A 和 K、10 和 5、空门”五段走，我去掉它。</li>
+    <li><b>提问频率</b>：现在是至少隔 2 轮问一次，一局大约 3 到 5 题。觉得多或少可以直接调。</li>
+    <li><b>后续方向的先后</b>：验证通过后，我建议先做局后体检（原型 7），因为现成数据最多、也最适合收费；关卡地图和残局其次。</li>
+  </ol>
+</main>
+<template id="tbl">
+  <div class="info"><i>8</i><b>本局打 8 · 我方</b><s>我方 8　对方 6</s></div>
+  <div class="tb"><u class="on">记牌</u><u>暂停</u><u class="bl">托管</u><u>菜单</u></div>
+  <div class="hud ally" style="left:32%;top:1.5%">对家<em>17</em></div>
+  <div class="hud" style="left:2.8%;top:42%">上家<em>21</em></div>
+  <div class="hud" style="right:2.8%;top:42%">下家<em>14</em></div>
+  <div class="hud ally" style="left:2.8%;bottom:4%">我<em>19</em></div>
+  <div class="cards" style="left:13%;top:46%"><i class="c">J</i><i class="c r">J</i></div>
+  <div class="say" style="right:13%;top:47%">不出</div>
+  <div class="say" style="left:47%;top:27%">不出</div>
+  <div class="cards hand"><i class="c">王</i><i class="c r">8</i><i class="c">8</i><i class="c r">A</i><i class="c">K</i><i class="c">K</i><i class="c r">Q</i><i class="c">J</i><i class="c r">10</i><i class="c">10</i><i class="c">9</i><i class="c r">9</i><i class="c">7</i><i class="c r">6</i><i class="c">6</i><i class="c">5</i><i class="c r">4</i><i class="c">3</i><i class="c">3</i></div>
+  <div class="bar"><span class="btn">理牌</span><span class="btn">一键理</span><span class="btn" style="background:linear-gradient(#8fe39a,#2fa457)">聊天</span></div>
+</template>
+<script>
+  // 四张牌桌原型共用同一张底图
+  var tpl = document.getElementById('tbl');
+  document.querySelectorAll('.ph.t').forEach(function (p) { p.prepend(tpl.content.cloneNode(true)); });
+</script>
+</body>
+</html>
